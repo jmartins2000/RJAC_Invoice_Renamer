@@ -1,0 +1,7 @@
+# No external dependencies required for running - using tkinter (built-in)
+
+# For building executable
+pyinstaller
+pillow
+numpy
+

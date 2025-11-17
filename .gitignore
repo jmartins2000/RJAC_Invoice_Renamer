@@ -1,0 +1,27 @@
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Generated icon files (regenerated from logo.png)
+assets/logo_rounded.png
+assets/logo.ico
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
