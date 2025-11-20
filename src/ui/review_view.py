@@ -94,6 +94,11 @@ class ReviewView(ctk.CTkFrame):
         self.entry_value = ctk.CTkEntry(self.form_frame)
         self.entry_value.pack(fill="x", padx=15, pady=(0, 15))
         self.entry_value.bind("<KeyRelease>", self._update_preview_name)
+        
+        ctk.CTkLabel(self.form_frame, text="Supplier/Company Name").pack(anchor="w", padx=15, pady=(5, 5))
+        self.entry_supplier = ctk.CTkEntry(self.form_frame)
+        self.entry_supplier.pack(fill="x", padx=15, pady=(0, 15))
+        self.entry_supplier.bind("<KeyRelease>", self._update_preview_name)
 
         self.lbl_preview_name = ctk.CTkLabel(self.form_frame, text="Result: ...", text_color=COLORS["LIGHT_GREEN"])
         self.lbl_preview_name.pack(pady=10, anchor="w", padx=15)
@@ -252,13 +257,17 @@ class ReviewView(ctk.CTkFrame):
         self.entry_date.insert(0, data.get('date', ''))
         self.entry_value.delete(0, "end")
         self.entry_value.insert(0, str(data.get('total_value', '')))
+        self.entry_supplier.delete(0, "end")
+        self.entry_supplier.insert(0, data.get('supplier', ''))
         self._update_preview_name()
 
     def _update_preview_name(self, event=None):
         date = self.entry_date.get().strip()
         val = self.entry_value.get().strip()
-        if date and val:
-            new_name = f"{date}_{val}.pdf"
+        supplier = self.entry_supplier.get().strip()
+        
+        if date and val and supplier:
+            new_name = f"{date}_{val}_{supplier}.pdf"
             self.lbl_preview_name.configure(text=f"Result: {new_name}")
         else:
             self.lbl_preview_name.configure(text="Result: ...")
@@ -338,7 +347,8 @@ class ReviewView(ctk.CTkFrame):
         if self.form_frame.winfo_ismapped():
             current_data = {
                 'date': self.entry_date.get().strip(),
-                'total_value': self.entry_value.get().strip()
+                'total_value': self.entry_value.get().strip(),
+                'supplier': self.entry_supplier.get().strip()
             }
             self.data_cache[filepath] = current_data
         
@@ -377,9 +387,10 @@ class ReviewView(ctk.CTkFrame):
                 data = self.data_cache[filepath]
                 date_str = data.get('date', '')
                 val_str = data.get('total_value', '')
+                supplier_str = data.get('supplier', '')
                 
-                if date_str and val_str:
-                    new_name = f"{date_str}_{val_str}.pdf"
+                if date_str and val_str and supplier_str:
+                    new_name = f"{date_str}_{val_str}_{supplier_str}.pdf"
                     if FileManager.rename_invoice(
                         source_path=filepath,
                         dest_folder=self.dest_folder,

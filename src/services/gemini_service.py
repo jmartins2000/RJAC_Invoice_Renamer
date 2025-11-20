@@ -8,6 +8,7 @@ import typing_extensions
 class InvoiceData(typing_extensions.TypedDict):
     date: str
     total_value: float
+    supplier: str
 
 class GeminiService:
     """Service to handle interaction with Gemini API"""
@@ -49,11 +50,11 @@ class GeminiService:
 
             print(f"Analyzing {file_path}...")
             prompt = """
-            Extract the invoice date and the total value (grand total) from this invoice.
+            Extract the following information from this invoice:
             
-            - Format the date as YYYY-MM-DD.
-            - The total value should be a number (float), e.g., 123.45.
-            - If there are multiple dates, prefer the main 'Invoice Date' or 'Issue Date'.
+            1. Invoice date - Format as YYYY-MM-DD. If multiple dates exist, prefer the main 'Invoice Date' or 'Issue Date'.
+            2. Total value - The grand total as a number (float), e.g., 123.45.
+            3. Supplier - The name of the company/supplier issuing the invoice. Use the most prominent business name at the top of the invoice.
             """
             
             response = self.model.generate_content([sample_file, prompt])
