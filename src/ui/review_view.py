@@ -4,6 +4,7 @@ from src.config import COLORS
 from src.services.pdf_service import PDFService
 from src.services.gemini_service import GeminiService
 from src.services.file_manager import FileManager
+from src.services.excel_exporter import ExcelExporter
 from src.ui.pdf_preview import PDFPreviewFrame
 from src.utils import get_resource_path
 import threading
@@ -141,17 +142,33 @@ class ReviewView(ctk.CTkFrame):
         )
         self.btn_next.pack(side="right")
         
-        # 4. Rename All Button (separate, below nav_frame)
+        # 4. Action Buttons Frame (separate, below nav_frame, initially hidden)
+        self.action_buttons_frame = ctk.CTkFrame(self.data_container, fg_color="transparent")
+        
+        self.btn_download_excel = ctk.CTkButton(
+            self.action_buttons_frame,
+            text="Download Spreadsheet",
+            command=self.download_spreadsheet,
+            fg_color=COLORS["LIGHT_GREEN"],
+            hover_color=COLORS["DARK_GREEN"],
+            height=40,
+            width=200,
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.btn_download_excel.pack(side="left", padx=(0, 10))
+        
         self.btn_rename_all = ctk.CTkButton(
-            self.data_container,
+            self.action_buttons_frame,
             text="Rename All Files",
             command=self.rename_all_files,
             fg_color=COLORS["LIGHT_GREEN"],
             hover_color=COLORS["DARK_GREEN"],
-            width=160
+            height=40,
+            width=200,
+            font=ctk.CTkFont(size=14, weight="bold")
         )
-        # Pack it below nav_frame, initially hidden
-        # We'll pack it in _check_completion_status when ready 
+        self.btn_rename_all.pack(side="left")
+        # We'll pack action_buttons_frame in _check_completion_status when ready 
 
 
         # Start
@@ -360,7 +377,7 @@ class ReviewView(ctk.CTkFrame):
             self.load_current_invoice()
 
     def _check_completion_status(self):
-        """Check if all files have data, show Rename All button"""
+        """Check if all files have data, show action buttons"""
         all_processed = True
         for f in self.files:
             fp = os.path.join(self.source_folder, f)
@@ -369,12 +386,37 @@ class ReviewView(ctk.CTkFrame):
                 break
                 
         if all_processed:
-            # Check if button already packed
-            if not self.btn_rename_all.winfo_ismapped():
+            # Check if buttons already packed
+            if not self.action_buttons_frame.winfo_ismapped():
                 # Pack it AFTER nav_frame (below it visually), anchored to the right
-                self.btn_rename_all.pack(side="bottom", anchor="e", pady=(10, 0), after=self.nav_frame)
+                self.action_buttons_frame.pack(side="bottom", anchor="e", pady=(10, 0), after=self.nav_frame)
         else:
-            self.btn_rename_all.pack_forget()
+            self.action_buttons_frame.pack_forget()
+
+    def download_spreadsheet(self):
+        """Export invoice data to Excel"""
+        self.btn_download_excel.configure(state="disabled", text="Exporting...")
+        
+        # Prepare data
+        data_list = []
+        for filename in self.files:
+            filepath = os.path.join(self.source_folder, filename)
+            if filepath in self.data_cache:
+                data_list.append(self.data_cache[filepath])
+        
+        # Export
+        excel_path = os.path.join(self.dest_folder, "invoice_data.xlsx")
+        
+        # Ensure dest folder exists
+        if not os.path.exists(self.dest_folder):
+            os.makedirs(self.dest_folder)
+            
+        success = ExcelExporter.export_to_excel(data_list, excel_path)
+        
+        if success:
+            self.btn_download_excel.configure(state="normal", text="✓ Downloaded")
+        else:
+            self.btn_download_excel.configure(state="normal", text="Error - Retry")
 
     def rename_all_files(self):
         """Batch rename all files in cache"""
@@ -401,7 +443,7 @@ class ReviewView(ctk.CTkFrame):
         
         # Done
         print(f"Batch rename complete. {success_count}/{len(self.files)} successful.")
-        self._go_home()
+        self.btn_rename_all.configure(state="normal", text="✓ Renamed")
 
     def prev_invoice(self):
         if self.current_index > 0:

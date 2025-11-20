@@ -11,6 +11,9 @@ pymupdf
 google-generativeai
 python-dotenv
 
+# Excel Export
+openpyxl
+
 # For building executable
 pyinstaller
 pillow
