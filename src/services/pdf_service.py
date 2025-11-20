@@ -6,24 +6,47 @@ class PDFService:
     """Service to handle PDF operations including preview generation"""
     
     @staticmethod
-    def get_pdf_images(pdf_path, zoom=2.0):
+    def get_pdf_images(pdf_path, target_width=550):
         """
         Convert PDF pages to a list of PIL Images.
-        zoom=2.0 ~ 144 DPI (Standard 72 DPI * 2)
+        Automatically adjusts DPI based on page size for optimal quality/performance.
+        
+        Args:
+            pdf_path: Path to PDF file
+            target_width: Target display width in pixels (default 550)
         """
         images = []
         try:
             doc = fitz.open(pdf_path)
+            
             for page_num in range(len(doc)):
                 page = doc.load_page(page_num)
-                # Create matrix for higher resolution (zoom x zoom)
+                
+                # Get page dimensions in points (1 point = 1/72 inch)
+                page_width = page.rect.width
+                page_height = page.rect.height
+                
+                # Calculate required zoom to achieve target_width at good quality
+                # We want at least 2.5x the target width for sharp rendering (more aggressive)
+                min_render_width = target_width * 2.5
+                
+                # Calculate zoom factor needed
+                zoom = min_render_width / page_width
+                
+                # Clamp zoom between reasonable bounds
+                # Min 2.5 (180 DPI) for already large pages
+                # Max 10.0 (720 DPI) for very small/zoomed-out pages
+                zoom = max(2.5, min(10.0, zoom))
+                
+                # Create matrix and render
                 mat = fitz.Matrix(zoom, zoom)
-                pix = page.get_pixmap(matrix=mat)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
                 
                 # Convert to PIL Image
                 img_data = pix.tobytes("png")
                 img = Image.open(io.BytesIO(img_data))
                 images.append(img)
+                
             doc.close()
             return images
         except Exception as e:

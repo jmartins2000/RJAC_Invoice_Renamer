@@ -20,7 +20,7 @@ class ReviewView(ctk.CTkFrame):
         
         # Services
         self.gemini = GeminiService()
-        self.executor = ThreadPoolExecutor(max_workers=5)
+        self.executor = ThreadPoolExecutor(max_workers=10)
         
         # State
         self.files = self._scan_pdf_files()
@@ -220,7 +220,7 @@ class ReviewView(ctk.CTkFrame):
         return [f for f in os.listdir(self.source_folder) if f.lower().endswith('.pdf')]
 
     def _start_background_processing(self):
-        for i in range(min(len(self.files), 5)): # Increased pre-fetch
+        for i in range(min(len(self.files), 10)): # Pre-fetch up to 10 files
             filename = self.files[i]
             filepath = os.path.join(self.source_folder, filename)
             if filepath not in self.data_cache and filepath not in self.active_tasks:
@@ -313,8 +313,8 @@ class ReviewView(ctk.CTkFrame):
              self.btn_next.configure(state="normal")
 
     def _queue_next_files(self):
-        # Queue up to 5 files ahead
-        for i in range(1, 6):
+        # Queue up to 10 files ahead
+        for i in range(1, 11):
             next_idx = self.current_index + i
             if next_idx < len(self.files):
                 next_file = self.files[next_idx]
