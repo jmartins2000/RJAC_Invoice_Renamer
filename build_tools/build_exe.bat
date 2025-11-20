@@ -15,7 +15,8 @@ if exist *.spec del /q *.spec
 
 echo.
 echo [3/3] Building executable with PyInstaller...
-pyinstaller --onefile --windowed --icon=assets\logo.ico --name "RJAC_Invoice_Renamer" --add-data "assets;assets" main.py
+echo Note: This may take a moment as we collect customtkinter files...
+pyinstaller --noconfirm --onefile --windowed --icon=assets\RJAC-logo.ico --name "RJAC_Invoice_Renamer" --add-data "assets;assets" --collect-all customtkinter main.py
 
 echo.
 echo ====================================
@@ -23,4 +24,3 @@ echo Build complete!
 echo Executable: dist\RJAC_Invoice_Renamer.exe
 echo ====================================
 pause
-

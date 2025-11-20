@@ -1,7 +1,17 @@
 # No external dependencies required for running - using tkinter (built-in)
 
+# GUI
+customtkinter
+packaging
+
+# PDF Processing
+pymupdf
+
+# AI / API
+google-generativeai
+python-dotenv
+
 # For building executable
 pyinstaller
 pillow
 numpy
-
