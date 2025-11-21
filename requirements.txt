@@ -12,6 +12,7 @@ google-generativeai
 python-dotenv
 grpcio==1.67.1
 grpcio-status==1.67.1
+requests
 
 # Excel Export
 openpyxl

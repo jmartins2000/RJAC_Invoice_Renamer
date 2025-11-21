@@ -5,12 +5,17 @@ from src.services.pdf_service import PDFService
 from src.services.gemini_service import GeminiService
 from src.services.file_manager import FileManager
 from src.services.excel_exporter import ExcelExporter
+from src.services.currency_converter import CurrencyConverter
 from src.ui.pdf_preview import PDFPreviewFrame
 from src.utils import get_resource_path
 import threading
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
+
+# Configuration
+MAX_WORKERS = 40
+WORKER_LAUNCH_DELAY_MS = 150  # Delay between launching initial workers (milliseconds)
 
 class ReviewView(ctk.CTkFrame):
     def __init__(self, master, source_folder, dest_folder, delete_original, on_back_home):
@@ -22,7 +27,7 @@ class ReviewView(ctk.CTkFrame):
         
         # Services
         self.gemini = GeminiService()
-        self.executor = ThreadPoolExecutor(max_workers=10)
+        self.executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
         
         # State
         self.files = self._scan_pdf_files()
@@ -264,9 +269,11 @@ class ReviewView(ctk.CTkFrame):
             if filepath not in self.data_cache:
                 self.pending_files.append(filepath)
         
-        # Start initial batch of workers (up to 10)
-        for _ in range(min(10, len(self.pending_files))):
-            self._submit_next_file()
+        # Start initial batch of workers with staggered delays
+        for i in range(min(MAX_WORKERS, len(self.pending_files))):
+            # Stagger launches to avoid rate limit burst
+            delay_ms = i * WORKER_LAUNCH_DELAY_MS
+            self.after(delay_ms, self._submit_next_file)
 
     def _submit_next_file(self):
         """Submit the next file from the queue to a worker"""
@@ -400,7 +407,14 @@ class ReviewView(ctk.CTkFrame):
         """Update the completion counter label"""
         completed = len(self.data_cache)
         total = len(self.files)
-        self.lbl_completion.configure(text=f"Completed: {completed}/{total}")
+        
+        # Add cost if all completed
+        if completed == total:
+            cost_usd = self.gemini.get_total_cost_usd()
+            cost_eur = CurrencyConverter.usd_to_eur(cost_usd)
+            self.lbl_completion.configure(text=f"Completed: {completed}/{total} | Cost: €{cost_eur:.2f}")
+        else:
+            self.lbl_completion.configure(text=f"Completed: {completed}/{total}")
 
     def _check_completion_status(self):
         """Check if all files have data, show action buttons"""

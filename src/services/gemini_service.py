@@ -16,6 +16,14 @@ class InvoiceData(typing_extensions.TypedDict):
 
 class GeminiService:
     """Service to handle interaction with Gemini API"""
+    
+    # Pricing for Gemini 2.5 Pro (Standard tier, prompts <= 200k tokens)
+    # Source: https://ai.google.dev/gemini-api/docs/pricing
+    # Input: $1.25 per 1M tokens
+    # Output: $10.00 per 1M tokens
+    PRICE_PER_1M_INPUT = 1.25
+    PRICE_PER_1M_OUTPUT = 10.00
+    
     def __init__(self):
         api_key = APP_CONFIG["GEMINI_API_KEY"]
         if not api_key:
@@ -23,8 +31,6 @@ class GeminiService:
         
         genai.configure(api_key=api_key)
         
-        # Using 1.5 Pro as requested (mapped to the latest stable Pro model)
-        # Note: If 2.5 becomes available, update the model_name
         self.model = genai.GenerativeModel(
             model_name='gemini-2.5-pro',
             generation_config={
@@ -32,6 +38,10 @@ class GeminiService:
                 "response_schema": InvoiceData
             }
         )
+        
+        # Track usage
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
 
     def extract_invoice_data(self, file_path):
         """
@@ -66,6 +76,11 @@ class GeminiService:
             
             response = self.model.generate_content([sample_file, prompt])
             
+            # Track token usage
+            if hasattr(response, 'usage_metadata'):
+                self.total_input_tokens += response.usage_metadata.prompt_token_count
+                self.total_output_tokens += response.usage_metadata.candidates_token_count
+            
             # Parse JSON response
             data = json.loads(response.text)
             
@@ -81,3 +96,9 @@ class GeminiService:
         except Exception as e:
             print(f"[ERROR] {filename}: {e}")
             return None
+    
+    def get_total_cost_usd(self):
+        """Calculate total cost in USD"""
+        input_cost = (self.total_input_tokens / 1_000_000) * self.PRICE_PER_1M_INPUT
+        output_cost = (self.total_output_tokens / 1_000_000) * self.PRICE_PER_1M_OUTPUT
+        return input_cost + output_cost
