@@ -9,7 +9,8 @@ from src.ui.pdf_preview import PDFPreviewFrame
 from src.utils import get_resource_path
 import threading
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
 
 class ReviewView(ctk.CTkFrame):
     def __init__(self, master, source_folder, dest_folder, delete_original, on_back_home):
@@ -27,7 +28,8 @@ class ReviewView(ctk.CTkFrame):
         self.files = self._scan_pdf_files()
         self.current_index = 0
         self.data_cache = {} 
-        self.active_tasks = set()
+        self.pending_files = []  # Queue of files to process
+        self.processing_count = 0  # Track active workers
         
         # Animation State
         self.loading_frames = []
@@ -120,8 +122,20 @@ class ReviewView(ctk.CTkFrame):
         self.nav_frame = ctk.CTkFrame(self.data_container, fg_color="transparent")
         self.nav_frame.pack(fill="x", pady=20, side="bottom")
 
+        # Left side: Previous button with completion counter above
+        self.left_nav_frame = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
+        self.left_nav_frame.pack(side="left")
+
+        self.lbl_completion = ctk.CTkLabel(
+            self.left_nav_frame,
+            text="Completed: 0/0",
+            text_color="gray",
+            font=ctk.CTkFont(size=11)
+        )
+        self.lbl_completion.pack(pady=(0, 5))
+
         self.btn_prev = ctk.CTkButton(
-            self.nav_frame, 
+            self.left_nav_frame, 
             text="Previous", 
             command=self.prev_invoice,
             fg_color="transparent",
@@ -130,7 +144,7 @@ class ReviewView(ctk.CTkFrame):
             hover_color=("gray80", "gray30"),
             width=100
         )
-        self.btn_prev.pack(side="left", padx=(0, 10))
+        self.btn_prev.pack()
 
         self.btn_next = ctk.CTkButton(
             self.nav_frame, 
@@ -242,31 +256,47 @@ class ReviewView(ctk.CTkFrame):
         return [f for f in os.listdir(self.source_folder) if f.lower().endswith('.pdf')]
 
     def _start_background_processing(self):
-        for i in range(min(len(self.files), 10)): # Pre-fetch up to 10 files
-            filename = self.files[i]
+        """Initialize the processing queue with all files"""
+        # Build list of files to process
+        self.pending_files = []
+        for filename in self.files:
             filepath = os.path.join(self.source_folder, filename)
-            if filepath not in self.data_cache and filepath not in self.active_tasks:
-                self.active_tasks.add(filepath)
-                self.executor.submit(self._process_file_with_gemini, filepath)
+            if filepath not in self.data_cache:
+                self.pending_files.append(filepath)
+        
+        # Start initial batch of workers (up to 10)
+        for _ in range(min(10, len(self.pending_files))):
+            self._submit_next_file()
+
+    def _submit_next_file(self):
+        """Submit the next file from the queue to a worker"""
+        if self.pending_files:
+            filepath = self.pending_files.pop(0)
+            self.processing_count += 1
+            future = self.executor.submit(self._process_file_with_gemini, filepath)
+            future.add_done_callback(lambda f: self._on_worker_done())
+
+    def _on_worker_done(self):
+        """Called when a worker finishes - immediately start next file"""
+        self.processing_count -= 1
+        self._submit_next_file()  # Keep workers busy
 
     def _process_file_with_gemini(self, filepath):
-        try:
-            data = self.gemini.extract_invoice_data(filepath)
-            if data:
-                self.data_cache[filepath] = data
-                # If current file, update UI on main thread
-                if self.files and self.files[self.current_index] in filepath:
-                    self.after(0, lambda: self._on_data_ready(data))
-        except Exception as e:
-            print(f"Error processing {filepath}: {e}")
-        finally:
-            if filepath in self.active_tasks:
-                self.active_tasks.remove(filepath)
+        data = self.gemini.extract_invoice_data(filepath)
+        if data:
+            self.data_cache[filepath] = data
+            # Update counter regardless of current file
+            self.after(0, self._update_completion_counter)
+            self.after(0, self._check_completion_status)
+            # If current file, update UI on main thread
+            if self.files and self.files[self.current_index] in filepath:
+                self.after(0, lambda d=data: self._on_data_ready(d))
 
     def _on_data_ready(self, data):
         """Called when current file data is ready"""
         self._populate_fields(data)
         self.show_form()
+        self._update_completion_counter()
         self._check_completion_status()
 
     def _populate_fields(self, data):
@@ -307,13 +337,8 @@ class ReviewView(ctk.CTkFrame):
             self._populate_fields(self.data_cache[filepath])
             self.show_form()
         else:
-            # Show Loading
+            # Show Loading (data will arrive from background workers)
             self.show_loading()
-            
-            # Trigger processing
-            if filepath not in self.active_tasks:
-                self.active_tasks.add(filepath)
-                self.executor.submit(self._process_file_with_gemini, filepath)
 
         # Preview
         threading.Thread(target=self._load_preview_async, args=(filepath,), daemon=True).start()
@@ -341,15 +366,8 @@ class ReviewView(ctk.CTkFrame):
              self.btn_next.configure(state="normal")
 
     def _queue_next_files(self):
-        # Queue up to 10 files ahead
-        for i in range(1, 11):
-            next_idx = self.current_index + i
-            if next_idx < len(self.files):
-                next_file = self.files[next_idx]
-                next_path = os.path.join(self.source_folder, next_file)
-                if next_path not in self.data_cache and next_path not in self.active_tasks:
-                     self.active_tasks.add(next_path)
-                     self.executor.submit(self._process_file_with_gemini, next_path)
+        # No longer needed - workers automatically pick up next files from queue
+        pass
 
     def _load_preview_async(self, filepath):
         try:
@@ -377,6 +395,12 @@ class ReviewView(ctk.CTkFrame):
         if self.current_index < len(self.files) - 1:
             self.current_index += 1
             self.load_current_invoice()
+
+    def _update_completion_counter(self):
+        """Update the completion counter label"""
+        completed = len(self.data_cache)
+        total = len(self.files)
+        self.lbl_completion.configure(text=f"Completed: {completed}/{total}")
 
     def _check_completion_status(self):
         """Check if all files have data, show action buttons"""

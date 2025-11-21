@@ -10,6 +10,8 @@ pymupdf
 # AI / API
 google-generativeai
 python-dotenv
+grpcio==1.67.1
+grpcio-status==1.67.1
 
 # Excel Export
 openpyxl

@@ -1,3 +1,7 @@
+import os
+os.environ['GRPC_VERBOSITY'] = 'ERROR'
+os.environ['GLOG_minloglevel'] = '2'
+
 import google.generativeai as genai
 from src.config import APP_CONFIG
 import json
@@ -32,10 +36,14 @@ class GeminiService:
     def extract_invoice_data(self, file_path):
         """
         Uploads PDF and extracts date and total value.
-        Returns: {'date': 'YYYY-MM-DD', 'total_value': 123.45} or None on error.
+        Returns: {'date': 'YYYY-MM-DD', 'total_value': 123.45, 'supplier': 'Company'} or None on error.
         """
+        import os
+        filename = os.path.basename(file_path)
+        
         try:
-            print(f"Uploading {file_path} to Gemini...")
+            print(f"[START] {filename}")
+            
             # Upload the file
             sample_file = genai.upload_file(path=file_path, display_name="Invoice")
             
@@ -45,10 +53,9 @@ class GeminiService:
                 sample_file = genai.get_file(sample_file.name)
 
             if sample_file.state.name == "FAILED":
-                print("File upload failed.")
+                print(f"[FAILED] {filename}")
                 return None
 
-            print(f"Analyzing {file_path}...")
             prompt = """
             Extract the following information from this invoice:
             
@@ -62,15 +69,15 @@ class GeminiService:
             # Parse JSON response
             data = json.loads(response.text)
             
-            # Cleanup: Delete file from Gemini storage to save space/quota
-            # (Optional but good practice)
+            # Cleanup
             try:
                 genai.delete_file(sample_file.name)
             except:
                 pass
 
+            print(f"[DONE] {filename}")
             return data
 
         except Exception as e:
-            print(f"Gemini Error: {e}")
+            print(f"[ERROR] {filename}: {e}")
             return None
