@@ -284,7 +284,9 @@ class ReviewView(ctk.CTkFrame):
         supplier = self.entry_supplier.get().strip()
         
         if date and val and supplier:
-            new_name = f"{date}_{val}_{supplier}.pdf"
+            # Format: YYYY.MM.DD VAL SUP
+            date_formatted = date.replace('-', '.')
+            new_name = f"{date_formatted} {val} {supplier}.pdf"
             self.lbl_preview_name.configure(text=f"Result: {new_name}")
         else:
             self.lbl_preview_name.configure(text="Result: ...")
@@ -432,7 +434,9 @@ class ReviewView(ctk.CTkFrame):
                 supplier_str = data.get('supplier', '')
                 
                 if date_str and val_str and supplier_str:
-                    new_name = f"{date_str}_{val_str}_{supplier_str}.pdf"
+                    # Format: YYYY.MM.DD VAL SUP
+                    date_formatted = date_str.replace('-', '.')
+                    new_name = f"{date_formatted} {val_str} {supplier_str}.pdf"
                     if FileManager.rename_invoice(
                         source_path=filepath,
                         dest_folder=self.dest_folder,

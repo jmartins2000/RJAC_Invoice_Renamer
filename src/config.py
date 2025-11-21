@@ -1,7 +1,16 @@
 import os
+import sys
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from the bundled location (works for both dev and PyInstaller)
+if getattr(sys, 'frozen', False):
+    # Running as PyInstaller bundle - .env is in _MEIPASS temp folder
+    env_path = os.path.join(sys._MEIPASS, '.env')
+else:
+    # Running as script - .env is in project root
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+
+load_dotenv(env_path)
 
 # UI Colors
 COLORS = {

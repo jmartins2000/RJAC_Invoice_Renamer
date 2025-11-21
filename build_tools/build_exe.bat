@@ -15,8 +15,8 @@ if exist *.spec del /q *.spec
 
 echo.
 echo [3/3] Building executable with PyInstaller...
-echo Note: This may take a moment as we collect customtkinter files...
-pyinstaller --noconfirm --onefile --windowed --icon=assets\RJAC-logo.ico --name "RJAC_Invoice_Renamer" --add-data "assets;assets" --collect-all customtkinter main.py
+echo Note: This may take a moment as we collect customtkinter and openpyxl files...
+pyinstaller --noconfirm --onefile --windowed --icon=assets\RJAC-logo.ico --name "RJAC_Invoice_Renamer" --add-data "assets;assets" --add-data ".env;." --collect-all customtkinter --collect-all openpyxl main.py
 
 echo.
 echo ====================================
