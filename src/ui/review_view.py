@@ -93,6 +93,15 @@ class ReviewView(ctk.CTkFrame):
         # -- View A: Form --
         self.form_frame = ctk.CTkFrame(self.content_frame_wrapper, fg_color=("white", "#2b2b2b"))
         
+        # Error message label (hidden by default)
+        self.lbl_error = ctk.CTkLabel(
+            self.form_frame, 
+            text="", 
+            text_color="red",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            wraplength=350
+        )
+        
         ctk.CTkLabel(self.form_frame, text="Invoice Date (YYYY-MM-DD)").pack(anchor="w", padx=15, pady=(15, 5))
         self.entry_date = ctk.CTkEntry(self.form_frame)
         self.entry_date.pack(fill="x", padx=15, pady=(0, 15))
@@ -123,24 +132,24 @@ class ReviewView(ctk.CTkFrame):
         # Fallback Progress Bar (if no GIF)
         self.progress_bar = ctk.CTkProgressBar(self.loading_frame, width=200, mode="indeterminate")
 
-        # 3. Navigation Buttons
-        self.nav_frame = ctk.CTkFrame(self.data_container, fg_color="transparent")
-        self.nav_frame.pack(fill="x", pady=20, side="bottom")
-
-        # Left side: Previous button with completion counter above
-        self.left_nav_frame = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
-        self.left_nav_frame.pack(side="left")
-
+        # 3. Status Info and Action Buttons Row (above navigation)
+        self.status_frame = ctk.CTkFrame(self.data_container, fg_color="transparent")
+        self.status_frame.pack(fill="x", pady=(0, 10), side="bottom")
+        
         self.lbl_completion = ctk.CTkLabel(
-            self.left_nav_frame,
+            self.status_frame,
             text="Completed: 0/0",
             text_color="gray",
             font=ctk.CTkFont(size=11)
         )
-        self.lbl_completion.pack(pady=(0, 5))
+        self.lbl_completion.pack(side="left", anchor="w")
+
+        # 4. Navigation Buttons
+        self.nav_frame = ctk.CTkFrame(self.data_container, fg_color="transparent")
+        self.nav_frame.pack(fill="x", pady=(0, 20), side="bottom")
 
         self.btn_prev = ctk.CTkButton(
-            self.left_nav_frame, 
+            self.nav_frame, 
             text="Previous", 
             command=self.prev_invoice,
             fg_color="transparent",
@@ -149,7 +158,7 @@ class ReviewView(ctk.CTkFrame):
             hover_color=("gray80", "gray30"),
             width=100
         )
-        self.btn_prev.pack()
+        self.btn_prev.pack(side="left", padx=(0, 10))
 
         self.btn_next = ctk.CTkButton(
             self.nav_frame, 
@@ -161,8 +170,9 @@ class ReviewView(ctk.CTkFrame):
         )
         self.btn_next.pack(side="right")
         
-        # 4. Action Buttons Frame (separate, below nav_frame, initially hidden)
-        self.action_buttons_frame = ctk.CTkFrame(self.data_container, fg_color="transparent")
+        # Action Buttons (in same row as status, on the right, initially hidden)
+        self.action_buttons_frame = ctk.CTkFrame(self.status_frame, fg_color="transparent")
+        # We'll pack this on the right side when ready
         
         self.btn_download_excel = ctk.CTkButton(
             self.action_buttons_frame,
@@ -170,9 +180,9 @@ class ReviewView(ctk.CTkFrame):
             command=self.download_spreadsheet,
             fg_color=COLORS["LIGHT_GREEN"],
             hover_color=COLORS["DARK_GREEN"],
-            height=40,
-            width=200,
-            font=ctk.CTkFont(size=14, weight="bold")
+            height=32,
+            width=180,
+            font=ctk.CTkFont(size=13, weight="bold")
         )
         self.btn_download_excel.pack(side="left", padx=(0, 10))
         
@@ -182,9 +192,9 @@ class ReviewView(ctk.CTkFrame):
             command=self.rename_all_files,
             fg_color=COLORS["LIGHT_GREEN"],
             hover_color=COLORS["DARK_GREEN"],
-            height=40,
-            width=200,
-            font=ctk.CTkFont(size=14, weight="bold")
+            height=32,
+            width=180,
+            font=ctk.CTkFont(size=13, weight="bold")
         )
         self.btn_rename_all.pack(side="left")
         # We'll pack action_buttons_frame in _check_completion_status when ready 
@@ -298,6 +308,9 @@ class ReviewView(ctk.CTkFrame):
             # If current file, update UI on main thread
             if self.files and self.files[self.current_index] in filepath:
                 self.after(0, lambda d=data: self._on_data_ready(d))
+        else:
+            # If no data returned, it failed - still update counter
+            self.after(0, self._update_completion_counter)
 
     def _on_data_ready(self, data):
         """Called when current file data is ready"""
@@ -307,12 +320,31 @@ class ReviewView(ctk.CTkFrame):
         self._check_completion_status()
 
     def _populate_fields(self, data):
-        self.entry_date.delete(0, "end")
-        self.entry_date.insert(0, data.get('date', ''))
-        self.entry_value.delete(0, "end")
-        self.entry_value.insert(0, str(data.get('total_value', '')))
-        self.entry_supplier.delete(0, "end")
-        self.entry_supplier.insert(0, data.get('supplier', ''))
+        # Check if data contains an error
+        if 'error' in data:
+            # Show error message in red above fields
+            error_msg = data['error']
+            self.lbl_error.configure(text=f"ERROR: {error_msg}")
+            self.lbl_error.pack(anchor="w", padx=15, pady=(15, 10))
+            
+            # Fill fields with placeholder values
+            self.entry_date.delete(0, "end")
+            self.entry_date.insert(0, "YYYY.MM.DD")
+            self.entry_value.delete(0, "end")
+            self.entry_value.insert(0, "xx.xx")
+            self.entry_supplier.delete(0, "end")
+            self.entry_supplier.insert(0, "Wxyz")
+        else:
+            # Hide error label
+            self.lbl_error.pack_forget()
+            
+            # Normal data
+            self.entry_date.delete(0, "end")
+            self.entry_date.insert(0, data.get('date', ''))
+            self.entry_value.delete(0, "end")
+            self.entry_value.insert(0, str(data.get('total_value', '')))
+            self.entry_supplier.delete(0, "end")
+            self.entry_supplier.insert(0, data.get('supplier', ''))
         self._update_preview_name()
 
     def _update_preview_name(self, event=None):
@@ -428,8 +460,8 @@ class ReviewView(ctk.CTkFrame):
         if all_processed:
             # Check if buttons already packed
             if not self.action_buttons_frame.winfo_ismapped():
-                # Pack it AFTER nav_frame (below it visually), anchored to the right
-                self.action_buttons_frame.pack(side="bottom", anchor="e", pady=(10, 0), after=self.nav_frame)
+                # Pack on the right side of status_frame (same row as completion label)
+                self.action_buttons_frame.pack(side="right")
         else:
             self.action_buttons_frame.pack_forget()
 

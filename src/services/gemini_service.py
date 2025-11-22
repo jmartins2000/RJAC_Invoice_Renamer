@@ -94,8 +94,17 @@ class GeminiService:
             return data
 
         except Exception as e:
-            print(f"[ERROR] {filename}: {e}")
-            return None
+            # Extract clean error message
+            error_msg = str(e)
+            if 'returned "' in error_msg and '".' in error_msg:
+                # Extract message between 'returned "' and '".'
+                start = error_msg.find('returned "') + len('returned "')
+                end = error_msg.find('".', start)
+                if start > 0 and end > start:
+                    error_msg = error_msg[start:end]
+            
+            print(f"[ERROR] {filename}: {error_msg}")
+            return {'error': error_msg}  # Return error dict instead of None
     
     def get_total_cost_usd(self):
         """Calculate total cost in USD"""
