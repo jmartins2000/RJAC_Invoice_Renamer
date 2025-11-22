@@ -18,11 +18,12 @@ MAX_WORKERS = 40
 WORKER_LAUNCH_DELAY_MS = 150  # Delay between launching initial workers (milliseconds)
 
 class ReviewView(ctk.CTkFrame):
-    def __init__(self, master, source_folder, dest_folder, delete_original, on_back_home):
+    def __init__(self, master, source_folder, dest_folder, delete_original, filename_fields, on_back_home):
         super().__init__(master, fg_color="transparent")
         self.source_folder = source_folder
         self.dest_folder = dest_folder
         self.delete_original = delete_original
+        self.filename_fields = filename_fields  # Dict of which fields to include
         self.on_back_home = on_back_home
         
         # Services
@@ -43,8 +44,8 @@ class ReviewView(ctk.CTkFrame):
         self._load_assets()
         
         # Layout
-        self.grid_columnconfigure(0, weight=1) # Preview
-        self.grid_columnconfigure(1, weight=1) # Data
+        self.grid_columnconfigure(0, weight=1, uniform="columns") # Preview - 50%
+        self.grid_columnconfigure(1, weight=1, uniform="columns") # Data - 50%
         self.grid_rowconfigure(0, weight=1)
 
         # --- Left: PDF Preview ---
@@ -52,6 +53,9 @@ class ReviewView(ctk.CTkFrame):
         self.preview_container.grid(row=0, column=0, sticky="nsew", padx=(0, 20))
         self.preview_container.grid_columnconfigure(0, weight=1)
         self.preview_container.grid_rowconfigure(0, weight=1)
+        
+        # Bind to preview container resize to update PDF scaling
+        self.preview_container.bind("<Configure>", self._update_pdf_scaling)
 
         self.pdf_view = PDFPreviewFrame(self.preview_container, fg_color="transparent")
         self.pdf_view.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
@@ -60,6 +64,9 @@ class ReviewView(ctk.CTkFrame):
         self.data_container = ctk.CTkFrame(self, fg_color="transparent")
         self.data_container.grid(row=0, column=1, sticky="nsew")
         self.data_container.grid_columnconfigure(0, weight=1)
+        
+        # Bind resize event to update wraplengths
+        self.data_container.bind("<Configure>", self._update_wraplengths)
 
         # Back Button (Top Left) - Styled like Previous
         self.btn_back = ctk.CTkButton(
@@ -78,79 +85,47 @@ class ReviewView(ctk.CTkFrame):
         self.lbl_filename = ctk.CTkLabel(
             self.data_container, 
             text="Loading...", 
-            font=ctk.CTkFont(size=18, weight="bold")
+            font=ctk.CTkFont(size=18, weight="bold"),
+            wraplength=400
         )
-        self.lbl_filename.pack(pady=(10, 5), anchor="w", fill="x")
+        self.lbl_filename.pack(pady=(10, 5), anchor="w", fill="x", padx=10)
         
         self.lbl_progress = ctk.CTkLabel(self.data_container, text="Invoice 1 of X", text_color="gray")
         self.lbl_progress.pack(anchor="w", pady=(0, 20))
-
-        # 2. Main Content Area (Swaps between Form and Loader)
-        self.content_frame_wrapper = ctk.CTkFrame(self.data_container, fg_color="transparent")
-        self.content_frame_wrapper.pack(fill="both", expand=True)
         
-        # -- View A: Form --
-        self.form_frame = ctk.CTkFrame(self.content_frame_wrapper, fg_color=("white", "#2b2b2b"))
+        # Pack bottom elements first (from bottom up) to give them priority
+        # 5. Action Buttons (at very bottom, initially hidden)
+        self.action_buttons_frame = ctk.CTkFrame(self.data_container, fg_color="transparent", height=50)
+        self.action_buttons_frame.pack(fill="x", pady=(0, 20), side="bottom")
+        self.action_buttons_frame.pack_propagate(False)  # Maintain height even when empty
         
-        # Error message label (hidden by default)
-        self.lbl_error = ctk.CTkLabel(
-            self.form_frame, 
-            text="", 
-            text_color="red",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            wraplength=350
+        self.btn_download_excel = ctk.CTkButton(
+            self.action_buttons_frame,
+            text="Download Spreadsheet",
+            command=self.download_spreadsheet,
+            fg_color=COLORS["LIGHT_GREEN"],
+            hover_color=COLORS["DARK_GREEN"],
+            height=32,
+            width=180,
+            font=ctk.CTkFont(size=13)
         )
+        # Don't pack yet
         
-        ctk.CTkLabel(self.form_frame, text="Invoice Date (YYYY.MM.DD)").pack(anchor="w", padx=15, pady=(15, 5))
-        self.entry_date = ctk.CTkEntry(self.form_frame)
-        self.entry_date.pack(fill="x", padx=15, pady=(0, 15))
-        self.entry_date.bind("<KeyRelease>", self._update_preview_name)
-        
-        ctk.CTkLabel(self.form_frame, text="Total Value").pack(anchor="w", padx=15, pady=(5, 5))
-        self.entry_value = ctk.CTkEntry(self.form_frame)
-        self.entry_value.pack(fill="x", padx=15, pady=(0, 15))
-        self.entry_value.bind("<KeyRelease>", self._update_preview_name)
-        
-        ctk.CTkLabel(self.form_frame, text="Invoice Number").pack(anchor="w", padx=15, pady=(5, 5))
-        self.entry_invoice_number = ctk.CTkEntry(self.form_frame)
-        self.entry_invoice_number.pack(fill="x", padx=15, pady=(0, 15))
-        self.entry_invoice_number.bind("<KeyRelease>", self._update_preview_name)
-        
-        ctk.CTkLabel(self.form_frame, text="Supplier/Company Name").pack(anchor="w", padx=15, pady=(5, 5))
-        self.entry_supplier = ctk.CTkEntry(self.form_frame)
-        self.entry_supplier.pack(fill="x", padx=15, pady=(0, 15))
-        self.entry_supplier.bind("<KeyRelease>", self._update_preview_name)
-
-        self.lbl_preview_name = ctk.CTkLabel(self.form_frame, text="Result: ...", text_color=COLORS["LIGHT_GREEN"])
-        self.lbl_preview_name.pack(pady=10, anchor="w", padx=15)
-
-        # -- View B: Loading --
-        self.loading_frame = ctk.CTkFrame(self.content_frame_wrapper, fg_color="transparent")
-        
-        self.lbl_loading_icon = ctk.CTkLabel(self.loading_frame, text="") # Image container
-        self.lbl_loading_icon.pack(pady=(50, 10))
-        
-        self.lbl_loading_text = ctk.CTkLabel(self.loading_frame, text="Analysing with Gemini 2.5...", text_color="gray")
-        self.lbl_loading_text.pack()
-        
-        # Fallback Progress Bar (if no GIF)
-        self.progress_bar = ctk.CTkProgressBar(self.loading_frame, width=200, mode="indeterminate")
-
-        # 3. Status Info and Action Buttons Row (above navigation)
-        self.status_frame = ctk.CTkFrame(self.data_container, fg_color="transparent")
-        self.status_frame.pack(fill="x", pady=(0, 10), side="bottom")
-        
-        self.lbl_completion = ctk.CTkLabel(
-            self.status_frame,
-            text=f"Completed: 0/{len(self.files)}",
-            text_color="gray",
-            font=ctk.CTkFont(size=11)
+        self.btn_rename_all = ctk.CTkButton(
+            self.action_buttons_frame,
+            text="Rename All Files",
+            command=self.rename_all_files,
+            fg_color=COLORS["LIGHT_GREEN"],
+            hover_color=COLORS["DARK_GREEN"],
+            height=32,
+            width=180,
+            font=ctk.CTkFont(size=13)
         )
-        self.lbl_completion.pack(side="left", anchor="w")
-
-        # 4. Navigation Buttons
+        # Don't pack yet
+        
+        # 4. Navigation Buttons (above action buttons)
         self.nav_frame = ctk.CTkFrame(self.data_container, fg_color="transparent")
-        self.nav_frame.pack(fill="x", pady=(0, 20), side="bottom")
+        self.nav_frame.pack(fill="x", pady=(0, 10), side="bottom")
 
         self.btn_prev = ctk.CTkButton(
             self.nav_frame, 
@@ -174,35 +149,82 @@ class ReviewView(ctk.CTkFrame):
         )
         self.btn_next.pack(side="right")
         
-        # Action Buttons (in same row as status, on the right, initially hidden)
-        self.action_buttons_frame = ctk.CTkFrame(self.status_frame, fg_color="transparent")
-        # We'll pack this on the right side when ready
+        # 3. Completion Counter (above navigation)
+        self.status_frame = ctk.CTkFrame(self.data_container, fg_color="transparent")
+        self.status_frame.pack(fill="x", pady=(5, 10), side="bottom")
         
-        self.btn_download_excel = ctk.CTkButton(
-            self.action_buttons_frame,
-            text="Download Spreadsheet",
-            command=self.download_spreadsheet,
-            fg_color=COLORS["LIGHT_GREEN"],
-            hover_color=COLORS["DARK_GREEN"],
-            height=32,
-            width=180,
-            font=ctk.CTkFont(size=13, weight="bold")
+        self.lbl_completion = ctk.CTkLabel(
+            self.status_frame,
+            text=f"Completed: 0/{len(self.files)}",
+            text_color="gray",
+            font=ctk.CTkFont(size=11)
         )
-        self.btn_download_excel.pack(side="left", padx=(0, 10))
-        
-        self.btn_rename_all = ctk.CTkButton(
-            self.action_buttons_frame,
-            text="Rename All Files",
-            command=self.rename_all_files,
-            fg_color=COLORS["LIGHT_GREEN"],
-            hover_color=COLORS["DARK_GREEN"],
-            height=32,
-            width=180,
-            font=ctk.CTkFont(size=13, weight="bold")
-        )
-        self.btn_rename_all.pack(side="left")
-        # We'll pack action_buttons_frame in _check_completion_status when ready 
+        self.lbl_completion.pack(side="left", anchor="w")
 
+        # 2. Main Content Area (fills remaining space after bottom elements are positioned)
+        self.content_frame_wrapper = ctk.CTkFrame(self.data_container, fg_color="transparent")
+        self.content_frame_wrapper.pack(fill="both", expand=True, pady=(0, 10))
+        self.content_frame_wrapper.bind("<Configure>", self._update_form_height)
+        
+        # Height multiplier for scrollable frame (adjust this value between 0.0 and 1.0)
+        self.FORM_HEIGHT_MULTIPLIER = 0.451  # <-- ADJUST THIS VALUE
+        
+        # -- View A: Form (Scrollable) --
+        self.form_frame = ctk.CTkScrollableFrame(
+            self.content_frame_wrapper, 
+            fg_color=("white", "#2b2b2b"),
+            height=400  # Initial height, will be updated dynamically
+        )
+        
+        # Error message label (hidden by default)
+        self.lbl_error = ctk.CTkLabel(
+            self.form_frame, 
+            text="", 
+            text_color="red",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            wraplength=400
+        )
+        
+        ctk.CTkLabel(self.form_frame, text="Invoice Date (YYYY.MM.DD)").pack(anchor="w", padx=15, pady=(15, 5))
+        self.entry_date = ctk.CTkEntry(self.form_frame)
+        self.entry_date.pack(fill="x", padx=15, pady=(0, 15))
+        self.entry_date.bind("<KeyRelease>", self._update_preview_name)
+        
+        ctk.CTkLabel(self.form_frame, text="Total Value").pack(anchor="w", padx=15, pady=(5, 5))
+        self.entry_value = ctk.CTkEntry(self.form_frame)
+        self.entry_value.pack(fill="x", padx=15, pady=(0, 15))
+        self.entry_value.bind("<KeyRelease>", self._update_preview_name)
+        
+        ctk.CTkLabel(self.form_frame, text="Invoice Number").pack(anchor="w", padx=15, pady=(5, 5))
+        self.entry_invoice_number = ctk.CTkEntry(self.form_frame)
+        self.entry_invoice_number.pack(fill="x", padx=15, pady=(0, 15))
+        self.entry_invoice_number.bind("<KeyRelease>", self._update_preview_name)
+        
+        ctk.CTkLabel(self.form_frame, text="Supplier/Company Name").pack(anchor="w", padx=15, pady=(5, 5))
+        self.entry_supplier = ctk.CTkEntry(self.form_frame)
+        self.entry_supplier.pack(fill="x", padx=15, pady=(0, 15))
+        self.entry_supplier.bind("<KeyRelease>", self._update_preview_name)
+
+        self.lbl_preview_name = ctk.CTkLabel(
+            self.form_frame, 
+            text="Result: ...", 
+            text_color=COLORS["LIGHT_GREEN"],
+            justify="left",
+            wraplength=400
+        )
+        self.lbl_preview_name.pack(pady=10, anchor="w", padx=15, fill="x")
+
+        # -- View B: Loading --
+        self.loading_frame = ctk.CTkFrame(self.content_frame_wrapper, fg_color="transparent")
+        
+        self.lbl_loading_icon = ctk.CTkLabel(self.loading_frame, text="") # Image container
+        self.lbl_loading_icon.pack(pady=(50, 10))
+        
+        self.lbl_loading_text = ctk.CTkLabel(self.loading_frame, text="Analysing with Gemini 2.5...", text_color="gray")
+        self.lbl_loading_text.pack()
+        
+        # Fallback Progress Bar (if no GIF)
+        self.progress_bar = ctk.CTkProgressBar(self.loading_frame, width=200, mode="indeterminate")
 
         # Start
         if self.files:
@@ -230,6 +252,30 @@ class ReviewView(ctk.CTkFrame):
                     pass
         except Exception as e:
             print(f"Could not load loading animation: {e}")
+
+    def _update_wraplengths(self, event):
+        """Update wraplength for all text labels based on container width"""
+        container_width = event.width*0.5 - 45
+        if container_width > 100:  # Sanity check
+            self.lbl_filename.configure(wraplength=container_width)
+            self.lbl_preview_name.configure(wraplength=container_width)
+            self.lbl_error.configure(wraplength=container_width)
+    
+    def _update_pdf_scaling(self, event):
+        """Update PDF preview scaling when container is resized"""
+        container_width = event.width
+        if container_width > 100 and hasattr(self.pdf_view, 'pil_images') and self.pdf_view.pil_images:
+            # Calculate target width (subtract padding)
+            target_width = container_width - 40
+            self.pdf_view.reload_with_width(target_width)
+    
+    def _update_form_height(self, event):
+        """Update scrollable form height based on available space"""
+        available_height = event.height
+        if available_height > 200:  # Sanity check
+            # Calculate height using the multiplier
+            form_height = int(available_height * self.FORM_HEIGHT_MULTIPLIER)
+            self.form_frame.configure(height=form_height)
 
     def _animate(self):
         """Update loading icon"""
@@ -362,18 +408,35 @@ class ReviewView(ctk.CTkFrame):
         invoice_num = self.entry_invoice_number.get().strip()
         supplier = self.entry_supplier.get().strip()
         
-        if date and val and invoice_num and supplier:
-            # Get original filename (without extension)
+        # Build filename based on selected fields
+        filename_parts = []
+        
+        if self.filename_fields.get('date') and date:
+            date_formatted = date.replace('-', '.')
+            filename_parts.append(date_formatted)
+        
+        if self.filename_fields.get('value') and val:
+            filename_parts.append(val)
+        
+        if self.filename_fields.get('invoice_number') and invoice_num:
+            filename_parts.append(invoice_num)
+        
+        if self.filename_fields.get('supplier') and supplier:
+            filename_parts.append(supplier)
+        
+        # Add original filename with underscore separator if selected
+        if self.filename_fields.get('original'):
             if self.files and self.current_index < len(self.files):
                 original_filename = self.files[self.current_index]
                 original_name_no_ext = os.path.splitext(original_filename)[0]
-            else:
-                original_name_no_ext = "original"
-            
-            # Format: YYYY.MM.DD VAL INV# SUP_ORIGINAL.pdf
-            # Date should already have dots, but handle both cases
-            date_formatted = date.replace('-', '.')
-            new_name = f"{date_formatted} {val} {invoice_num} {supplier}_{original_name_no_ext}.pdf"
+                if filename_parts:  # Add underscore if there are other parts
+                    filename_parts.append(f"_{original_name_no_ext}")
+                else:  # No underscore if it's the only field
+                    filename_parts.append(original_name_no_ext)
+        
+        if filename_parts:
+            # Join with spaces, except the original filename which already has underscore
+            new_name = " ".join(filename_parts).replace(" _", "_") + ".pdf"
             self.lbl_preview_name.configure(text=f"Result: {new_name}")
         else:
             self.lbl_preview_name.configure(text="Result: ...")
@@ -478,11 +541,13 @@ class ReviewView(ctk.CTkFrame):
                 
         if all_processed:
             # Check if buttons already packed
-            if not self.action_buttons_frame.winfo_ismapped():
-                # Pack on the right side of status_frame (same row as completion label)
-                self.action_buttons_frame.pack(side="right")
+            if not self.btn_download_excel.winfo_ismapped():
+                # Pack buttons on the right side of the frame
+                self.btn_rename_all.pack(side="right")
+                self.btn_download_excel.pack(side="right", padx=(0, 10))
         else:
-            self.action_buttons_frame.pack_forget()
+            self.btn_download_excel.pack_forget()
+            self.btn_rename_all.pack_forget()
 
     def download_spreadsheet(self):
         """Export invoice data to Excel"""
@@ -526,13 +591,33 @@ class ReviewView(ctk.CTkFrame):
                 invoice_num_str = data.get('invoice_number', '')
                 supplier_str = data.get('supplier', '')
                 
-                if date_str and val_str and invoice_num_str and supplier_str:
-                    # Get original filename without extension
-                    original_name_no_ext = os.path.splitext(filename)[0]
-                    
-                    # Format: YYYY.MM.DD VAL INV# SUP_ORIGINAL.pdf
+                # Build filename based on selected fields
+                filename_parts = []
+                
+                if self.filename_fields.get('date') and date_str:
                     date_formatted = date_str.replace('-', '.')
-                    new_name = f"{date_formatted} {val_str} {invoice_num_str} {supplier_str}_{original_name_no_ext}.pdf"
+                    filename_parts.append(date_formatted)
+                
+                if self.filename_fields.get('value') and val_str:
+                    filename_parts.append(str(val_str))
+                
+                if self.filename_fields.get('invoice_number') and invoice_num_str:
+                    filename_parts.append(str(invoice_num_str))
+                
+                if self.filename_fields.get('supplier') and supplier_str:
+                    filename_parts.append(str(supplier_str))
+                
+                # Add original filename with underscore separator if selected
+                if self.filename_fields.get('original'):
+                    original_name_no_ext = os.path.splitext(filename)[0]
+                    if filename_parts:  # Add underscore if there are other parts
+                        filename_parts.append(f"_{original_name_no_ext}")
+                    else:  # No underscore if it's the only field
+                        filename_parts.append(original_name_no_ext)
+                
+                if filename_parts:
+                    # Join with spaces, except the original filename which already has underscore
+                    new_name = " ".join(filename_parts).replace(" _", "_") + ".pdf"
                     if FileManager.rename_invoice(
                         source_path=filepath,
                         dest_folder=self.dest_folder,

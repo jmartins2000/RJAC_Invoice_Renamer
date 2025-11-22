@@ -24,7 +24,7 @@ COLORS = {
 # App Configuration
 APP_CONFIG = {
     "NAME": "RJAC Invoice Renamer",
-    "SIZE": "900x750",
+    "SIZE": "900x800",
     "ICON": "assets/RJAC-logo.png",
     "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY")
 }

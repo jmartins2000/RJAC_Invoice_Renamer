@@ -91,6 +91,21 @@ class MainWindow(ctk.CTk):
                                  text_color=COLORS["WHITE"])
         title_label.pack(side="left", anchor="center")
 
+    def _validate_field_selection(self):
+        """Ensure at least one field is selected"""
+        if not any([
+            self.field_date_var.get(),
+            self.field_value_var.get(),
+            self.field_invoice_num_var.get(),
+            self.field_supplier_var.get(),
+            self.field_original_var.get()
+        ]):
+            # Re-enable the checkbox that was just unchecked
+            # Find which one was unchecked and re-enable it
+            tk.messagebox.showwarning("Invalid Selection", "At least one field must be selected for the filename.")
+            # Force re-check by setting all back if none selected
+            self.field_date_var.set(True)
+    
     def show_home_view(self):
         # Clear content area
         for widget in self.content_area.winfo_children():
@@ -111,11 +126,21 @@ class MainWindow(ctk.CTk):
         for widget in self.content_area.winfo_children():
             widget.destroy()
 
+        # Gather field selections
+        filename_fields = {
+            'date': self.field_date_var.get(),
+            'value': self.field_value_var.get(),
+            'invoice_number': self.field_invoice_num_var.get(),
+            'supplier': self.field_supplier_var.get(),
+            'original': self.field_original_var.get()
+        }
+
         self.review_view = ReviewView(
             self.content_area, 
             source_folder=self.source_path,
             dest_folder=self.dest_path,
             delete_original=self.delete_original_var.get(),
+            filename_fields=filename_fields,
             on_back_home=self.show_home_view
         )
         self.review_view.pack(fill="both", expand=True)
@@ -167,7 +192,7 @@ class MainWindow(ctk.CTk):
         options_frame = ctk.CTkFrame(center_wrapper, fg_color="transparent")
         options_frame.grid(row=4, column=0, sticky="ew", padx=30, pady=20)
         
-        self.delete_original_var = ctk.BooleanVar(value=False)
+        self.delete_original_var = ctk.BooleanVar(value=True)
         
         self.chk_delete = ctk.CTkCheckBox(
             options_frame, 
@@ -180,7 +205,96 @@ class MainWindow(ctk.CTk):
             border_color=COLORS["GRAY_SUBTEXT"],
             border_width=2
         )
-        self.chk_delete.pack(anchor="w")
+        self.chk_delete.pack(anchor="w", pady=(0, 15))
+        
+        # --- Filename Fields Selection ---
+        fields_label = ctk.CTkLabel(
+            options_frame,
+            text="Select fields to include in filename:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=("black", "white")
+        )
+        fields_label.pack(anchor="w", pady=(0, 10))
+        
+        # Create checkboxes for each field
+        self.field_date_var = ctk.BooleanVar(value=True)
+        self.field_value_var = ctk.BooleanVar(value=True)
+        self.field_invoice_num_var = ctk.BooleanVar(value=True)
+        self.field_supplier_var = ctk.BooleanVar(value=True)
+        self.field_original_var = ctk.BooleanVar(value=True)
+        
+        fields_checkboxes_frame = ctk.CTkFrame(options_frame, fg_color="transparent")
+        fields_checkboxes_frame.pack(anchor="w")
+        
+        self.chk_date = ctk.CTkCheckBox(
+            fields_checkboxes_frame,
+            text="Date",
+            variable=self.field_date_var,
+            command=self._validate_field_selection,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["LIGHT_GREEN"],
+            hover_color=COLORS["DARK_GREEN"],
+            checkmark_color="white",
+            border_color=COLORS["GRAY_SUBTEXT"],
+            border_width=2
+        )
+        self.chk_date.pack(side="left", padx=(0, 15))
+        
+        self.chk_value = ctk.CTkCheckBox(
+            fields_checkboxes_frame,
+            text="Value",
+            variable=self.field_value_var,
+            command=self._validate_field_selection,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["LIGHT_GREEN"],
+            hover_color=COLORS["DARK_GREEN"],
+            checkmark_color="white",
+            border_color=COLORS["GRAY_SUBTEXT"],
+            border_width=2
+        )
+        self.chk_value.pack(side="left", padx=(0, 15))
+        
+        self.chk_invoice_num = ctk.CTkCheckBox(
+            fields_checkboxes_frame,
+            text="Invoice Number",
+            variable=self.field_invoice_num_var,
+            command=self._validate_field_selection,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["LIGHT_GREEN"],
+            hover_color=COLORS["DARK_GREEN"],
+            checkmark_color="white",
+            border_color=COLORS["GRAY_SUBTEXT"],
+            border_width=2
+        )
+        self.chk_invoice_num.pack(side="left", padx=(0, 15))
+        
+        self.chk_supplier = ctk.CTkCheckBox(
+            fields_checkboxes_frame,
+            text="Supplier",
+            variable=self.field_supplier_var,
+            command=self._validate_field_selection,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["LIGHT_GREEN"],
+            hover_color=COLORS["DARK_GREEN"],
+            checkmark_color="white",
+            border_color=COLORS["GRAY_SUBTEXT"],
+            border_width=2
+        )
+        self.chk_supplier.pack(side="left", padx=(0, 15))
+        
+        self.chk_original = ctk.CTkCheckBox(
+            fields_checkboxes_frame,
+            text="Original Filename",
+            variable=self.field_original_var,
+            command=self._validate_field_selection,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["LIGHT_GREEN"],
+            hover_color=COLORS["DARK_GREEN"],
+            checkmark_color="white",
+            border_color=COLORS["GRAY_SUBTEXT"],
+            border_width=2
+        )
+        self.chk_original.pack(side="left")
 
         # --- Start Button ---
         self.btn_start = ctk.CTkButton(
@@ -257,7 +371,7 @@ class MainWindow(ctk.CTk):
         footer_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
         footer_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
         
-        lbl_version = ctk.CTkLabel(footer_frame, text="v1.0.1", text_color="gray", font=ctk.CTkFont(size=10))
+        lbl_version = ctk.CTkLabel(footer_frame, text="v1.0.2", text_color="gray", font=ctk.CTkFont(size=10))
         lbl_version.pack(side="right")
 
     def select_source_folder(self):
@@ -267,9 +381,8 @@ class MainWindow(ctk.CTk):
             self.lbl_source_path.configure(text=folder_path, text_color=("black", "white"))
             
             if not self.dest_path:
-                default_dest = os.path.join(folder_path, "Renamed")
-                self.dest_path = default_dest
-                self.lbl_dest_path.configure(text=f"{default_dest} (Default)", text_color="gray")
+                self.dest_path = folder_path
+                self.lbl_dest_path.configure(text=f"{folder_path} (Default)", text_color="gray")
 
     def select_dest_folder(self):
         folder_path = filedialog.askdirectory(title="Select Destination Folder")
