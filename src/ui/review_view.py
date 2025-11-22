@@ -111,6 +111,11 @@ class ReviewView(ctk.CTkFrame):
         self.entry_value.pack(fill="x", padx=15, pady=(0, 15))
         self.entry_value.bind("<KeyRelease>", self._update_preview_name)
         
+        ctk.CTkLabel(self.form_frame, text="Invoice Number").pack(anchor="w", padx=15, pady=(5, 5))
+        self.entry_invoice_number = ctk.CTkEntry(self.form_frame)
+        self.entry_invoice_number.pack(fill="x", padx=15, pady=(0, 15))
+        self.entry_invoice_number.bind("<KeyRelease>", self._update_preview_name)
+        
         ctk.CTkLabel(self.form_frame, text="Supplier/Company Name").pack(anchor="w", padx=15, pady=(5, 5))
         self.entry_supplier = ctk.CTkEntry(self.form_frame)
         self.entry_supplier.pack(fill="x", padx=15, pady=(0, 15))
@@ -137,7 +142,7 @@ class ReviewView(ctk.CTkFrame):
         
         self.lbl_completion = ctk.CTkLabel(
             self.status_frame,
-            text="Completed: 0/0",
+            text=f"Completed: 0/{len(self.files)}",
             text_color="gray",
             font=ctk.CTkFont(size=11)
         )
@@ -329,6 +334,8 @@ class ReviewView(ctk.CTkFrame):
             # Fill fields with placeholder values
             self.entry_date.delete(0, "end")
             self.entry_date.insert(0, "YYYY.MM.DD")
+            self.entry_invoice_number.delete(0, "end")
+            self.entry_invoice_number.insert(0, "INV-XXXX")
             self.entry_value.delete(0, "end")
             self.entry_value.insert(0, "xx.xx")
             self.entry_supplier.delete(0, "end")
@@ -341,6 +348,8 @@ class ReviewView(ctk.CTkFrame):
             date_value = data.get('date', '').replace('-', '.')
             self.entry_date.delete(0, "end")
             self.entry_date.insert(0, date_value)
+            self.entry_invoice_number.delete(0, "end")
+            self.entry_invoice_number.insert(0, data.get('invoice_number', ''))
             self.entry_value.delete(0, "end")
             self.entry_value.insert(0, str(data.get('total_value', '')))
             self.entry_supplier.delete(0, "end")
@@ -350,13 +359,21 @@ class ReviewView(ctk.CTkFrame):
     def _update_preview_name(self, event=None):
         date = self.entry_date.get().strip()
         val = self.entry_value.get().strip()
+        invoice_num = self.entry_invoice_number.get().strip()
         supplier = self.entry_supplier.get().strip()
         
-        if date and val and supplier:
-            # Format: YYYY.MM.DD VAL SUP
+        if date and val and invoice_num and supplier:
+            # Get original filename (without extension)
+            if self.files and self.current_index < len(self.files):
+                original_filename = self.files[self.current_index]
+                original_name_no_ext = os.path.splitext(original_filename)[0]
+            else:
+                original_name_no_ext = "original"
+            
+            # Format: YYYY.MM.DD VAL INV# SUP_ORIGINAL.pdf
             # Date should already have dots, but handle both cases
             date_formatted = date.replace('-', '.')
-            new_name = f"{date_formatted} {val} {supplier}.pdf"
+            new_name = f"{date_formatted} {val} {invoice_num} {supplier}_{original_name_no_ext}.pdf"
             self.lbl_preview_name.configure(text=f"Result: {new_name}")
         else:
             self.lbl_preview_name.configure(text="Result: ...")
@@ -424,6 +441,7 @@ class ReviewView(ctk.CTkFrame):
         if self.form_frame.winfo_ismapped():
             current_data = {
                 'date': self.entry_date.get().strip(),
+                'invoice_number': self.entry_invoice_number.get().strip(),
                 'total_value': self.entry_value.get().strip(),
                 'supplier': self.entry_supplier.get().strip()
             }
@@ -470,12 +488,15 @@ class ReviewView(ctk.CTkFrame):
         """Export invoice data to Excel"""
         self.btn_download_excel.configure(state="disabled", text="Exporting...")
         
-        # Prepare data
+        # Prepare data with original filename
         data_list = []
         for filename in self.files:
             filepath = os.path.join(self.source_folder, filename)
             if filepath in self.data_cache:
-                data_list.append(self.data_cache[filepath])
+                # Add original filename to the data
+                data = self.data_cache[filepath].copy()
+                data['original_filename'] = filename
+                data_list.append(data)
         
         # Export
         excel_path = os.path.join(self.dest_folder, "invoice_data.xlsx")
@@ -502,12 +523,16 @@ class ReviewView(ctk.CTkFrame):
                 data = self.data_cache[filepath]
                 date_str = data.get('date', '')
                 val_str = data.get('total_value', '')
+                invoice_num_str = data.get('invoice_number', '')
                 supplier_str = data.get('supplier', '')
                 
-                if date_str and val_str and supplier_str:
-                    # Format: YYYY.MM.DD VAL SUP
+                if date_str and val_str and invoice_num_str and supplier_str:
+                    # Get original filename without extension
+                    original_name_no_ext = os.path.splitext(filename)[0]
+                    
+                    # Format: YYYY.MM.DD VAL INV# SUP_ORIGINAL.pdf
                     date_formatted = date_str.replace('-', '.')
-                    new_name = f"{date_formatted} {val_str} {supplier_str}.pdf"
+                    new_name = f"{date_formatted} {val_str} {invoice_num_str} {supplier_str}_{original_name_no_ext}.pdf"
                     if FileManager.rename_invoice(
                         source_path=filepath,
                         dest_folder=self.dest_folder,

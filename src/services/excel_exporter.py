@@ -11,7 +11,7 @@ class ExcelExporter:
         Export invoice data to an Excel file.
         
         Args:
-            data_list: List of dicts with keys: 'date', 'supplier', 'total_value'
+            data_list: List of dicts with keys: 'date', 'original_filename', 'supplier', 'invoice_number', 'total_value'
             output_path: Full path to output .xlsx file
             
         Returns:
@@ -22,8 +22,8 @@ class ExcelExporter:
             ws = wb.active
             ws.title = "Invoice Data"
             
-            # Headers
-            headers = ["Date", "Supplier", "Value"]
+            # Headers - Order: Date, Original Name, Supplier, Invoice Number, Value
+            headers = ["Date", "Original Name", "Supplier", "Invoice Number", "Value"]
             ws.append(headers)
             
             # Style headers
@@ -35,11 +35,13 @@ class ExcelExporter:
                 cell.font = header_font
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             
-            # Data rows
+            # Data rows - Order: Date, Original Name, Supplier, Invoice Number, Value
             for item in data_list:
                 ws.append([
                     item.get('date', ''),
+                    item.get('original_filename', ''),
                     item.get('supplier', ''),
+                    item.get('invoice_number', ''),
                     item.get('total_value', '')
                 ])
             

@@ -13,6 +13,7 @@ class InvoiceData(typing_extensions.TypedDict):
     date: str
     total_value: float
     supplier: str
+    invoice_number: str
 
 class GeminiService:
     """Service to handle interaction with Gemini API"""
@@ -72,6 +73,16 @@ class GeminiService:
             1. Invoice date - Format as YYYY-MM-DD. If multiple dates exist, prefer the main 'Invoice Date' or 'Issue Date'.
             2. Total value - The grand total as a number (float), e.g., 123.45.
             3. Supplier - The name of the company/supplier issuing the invoice. Use the most prominent business name at the top of the invoice.
+            4. Invoice number - The unique invoice/document identifier. This field may appear with various labels or no label at all:
+               - Common labels: "Invoice Number", "Invoice Nº", "Fatura", "Recibo", "Fatura/Recibo", "Doc Nº", "Document Number", among others.
+               - The invoice number can have various formats, such as:
+                 * "FR" followed by numbers (e.g., "FR LITC68/04", "FR 397849/6593")
+                 * Just "F" followed by numbers (e.g., "F 48269430")
+                 * "FAT", "FAC", or "FT" with numbers (e.g., "FAT 3/0398", "FAC 5/9756", "FT 08934FETEO02873/2021")
+                 * Complex alphanumeric codes (e.g., "SUPPLIER-BKEMF-2020-987648", "FR D 1243333532FAC/976554")
+                 * May contain slashes, spaces, or hyphens
+               - The field might not have a label and you'll need to infer it from context and format
+               - Return the complete invoice number as shown on the document, preserving all characters, spaces, and separators
             """
             
             response = self.model.generate_content([sample_file, prompt])
