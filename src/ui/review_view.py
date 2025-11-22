@@ -78,10 +78,9 @@ class ReviewView(ctk.CTkFrame):
         self.lbl_filename = ctk.CTkLabel(
             self.data_container, 
             text="Loading...", 
-            font=ctk.CTkFont(size=18, weight="bold"),
-            wraplength=300
+            font=ctk.CTkFont(size=18, weight="bold")
         )
-        self.lbl_filename.pack(pady=(10, 5), anchor="w")
+        self.lbl_filename.pack(pady=(10, 5), anchor="w", fill="x")
         
         self.lbl_progress = ctk.CTkLabel(self.data_container, text="Invoice 1 of X", text_color="gray")
         self.lbl_progress.pack(anchor="w", pady=(0, 20))
@@ -102,7 +101,7 @@ class ReviewView(ctk.CTkFrame):
             wraplength=350
         )
         
-        ctk.CTkLabel(self.form_frame, text="Invoice Date (YYYY-MM-DD)").pack(anchor="w", padx=15, pady=(15, 5))
+        ctk.CTkLabel(self.form_frame, text="Invoice Date (YYYY.MM.DD)").pack(anchor="w", padx=15, pady=(15, 5))
         self.entry_date = ctk.CTkEntry(self.form_frame)
         self.entry_date.pack(fill="x", padx=15, pady=(0, 15))
         self.entry_date.bind("<KeyRelease>", self._update_preview_name)
@@ -338,9 +337,10 @@ class ReviewView(ctk.CTkFrame):
             # Hide error label
             self.lbl_error.pack_forget()
             
-            # Normal data
+            # Normal data - replace "-" with "." in date
+            date_value = data.get('date', '').replace('-', '.')
             self.entry_date.delete(0, "end")
-            self.entry_date.insert(0, data.get('date', ''))
+            self.entry_date.insert(0, date_value)
             self.entry_value.delete(0, "end")
             self.entry_value.insert(0, str(data.get('total_value', '')))
             self.entry_supplier.delete(0, "end")
@@ -354,6 +354,7 @@ class ReviewView(ctk.CTkFrame):
         
         if date and val and supplier:
             # Format: YYYY.MM.DD VAL SUP
+            # Date should already have dots, but handle both cases
             date_formatted = date.replace('-', '.')
             new_name = f"{date_formatted} {val} {supplier}.pdf"
             self.lbl_preview_name.configure(text=f"Result: {new_name}")

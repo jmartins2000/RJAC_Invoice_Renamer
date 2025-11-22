@@ -257,7 +257,7 @@ class MainWindow(ctk.CTk):
         footer_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
         footer_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
         
-        lbl_version = ctk.CTkLabel(footer_frame, text="v1.0.0", text_color="gray", font=ctk.CTkFont(size=10))
+        lbl_version = ctk.CTkLabel(footer_frame, text="v1.0.1", text_color="gray", font=ctk.CTkFont(size=10))
         lbl_version.pack(side="right")
 
     def select_source_folder(self):
