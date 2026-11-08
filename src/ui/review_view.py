@@ -8,17 +8,18 @@ from src.services.excel_exporter import ExcelExporter
 from src.services.currency_converter import CurrencyConverter
 from src.ui.pdf_preview import PDFPreviewFrame
 from src.utils import get_resource_path
+from tkinter import messagebox
 import threading
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue
+import queue
+from concurrent.futures import ThreadPoolExecutor
 
-# Configuration
-MAX_WORKERS = 40
-WORKER_LAUNCH_DELAY_MS = 150  # Delay between launching initial workers (milliseconds)
+# Parallel Gemini requests. Failed requests are retried with backoff inside GeminiService.
+MAX_WORKERS = 6
+POLL_MS = 100
 
 class ReviewView(ctk.CTkFrame):
-    def __init__(self, master, source_folder, dest_folder, delete_original, filename_fields, on_back_home):
+    def __init__(self, master, api_key, source_folder, dest_folder, delete_original, filename_fields, on_back_home):
         super().__init__(master, fg_color="transparent")
         self.source_folder = source_folder
         self.dest_folder = dest_folder
@@ -27,15 +28,20 @@ class ReviewView(ctk.CTkFrame):
         self.on_back_home = on_back_home
         
         # Services
-        self.gemini = GeminiService()
+        self.gemini = GeminiService(api_key)
         self.executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
-        
+        # Worker threads never touch Tk directly; they post callables here and the UI thread runs them.
+        self.ui_queue = queue.Queue()
+        self._closed = False
+        self.eur_rate = None
+        threading.Thread(target=self._fetch_eur_rate, daemon=True).start()
+
         # State
         self.files = self._scan_pdf_files()
         self.current_index = 0
-        self.data_cache = {} 
-        self.pending_files = []  # Queue of files to process
-        self.processing_count = 0  # Track active workers
+        self.data_cache = {}   # filepath -> confirmed/extracted field values
+        self.errors = {}       # filepath -> error message (extraction failed)
+        self.in_flight = set()
         
         # Animation State
         self.loading_frames = []
@@ -185,8 +191,17 @@ class ReviewView(ctk.CTkFrame):
             wraplength=400
         )
         
-        ctk.CTkLabel(self.form_frame, text="Invoice Date (YYYY.MM.DD)").pack(anchor="w", padx=15, pady=(15, 5))
-        self.entry_date = ctk.CTkEntry(self.form_frame)
+        self.btn_retry = ctk.CTkButton(
+            self.form_frame, text="Try again", width=110, command=self._retry_current,
+            fg_color=COLORS["LIGHT_GREEN"], hover_color=COLORS["DARK_GREEN"])
+
+        self.lbl_warning = ctk.CTkLabel(
+            self.form_frame, text="", text_color="#d97706",
+            font=ctk.CTkFont(size=12, weight="bold"), wraplength=400, justify="left")
+
+        self.fields_anchor = ctk.CTkLabel(self.form_frame, text="Invoice Date (YYYY.MM.DD)")
+        self.fields_anchor.pack(anchor="w", padx=15, pady=(15, 5))
+        self.entry_date = ctk.CTkEntry(self.form_frame, placeholder_text="YYYY.MM.DD")
         self.entry_date.pack(fill="x", padx=15, pady=(0, 15))
         self.entry_date.bind("<KeyRelease>", self._update_preview_name)
         
@@ -220,13 +235,14 @@ class ReviewView(ctk.CTkFrame):
         self.lbl_loading_icon = ctk.CTkLabel(self.loading_frame, text="") # Image container
         self.lbl_loading_icon.pack(pady=(50, 10))
         
-        self.lbl_loading_text = ctk.CTkLabel(self.loading_frame, text="Analysing with Gemini 2.5...", text_color="gray")
+        self.lbl_loading_text = ctk.CTkLabel(self.loading_frame, text="Reading invoice with Gemini…", text_color="gray")
         self.lbl_loading_text.pack()
         
         # Fallback Progress Bar (if no GIF)
         self.progress_bar = ctk.CTkProgressBar(self.loading_frame, width=200, mode="indeterminate")
 
         # Start
+        self.after(POLL_MS, self._drain_ui_queue)
         if self.files:
             self._start_background_processing()
             self.load_current_invoice()
@@ -260,6 +276,7 @@ class ReviewView(ctk.CTkFrame):
             self.lbl_filename.configure(wraplength=container_width)
             self.lbl_preview_name.configure(wraplength=container_width)
             self.lbl_error.configure(wraplength=container_width)
+            self.lbl_warning.configure(wraplength=container_width)
     
     def _update_pdf_scaling(self, event):
         """Update PDF preview scaling when container is resized"""
@@ -318,128 +335,150 @@ class ReviewView(ctk.CTkFrame):
     def _scan_pdf_files(self):
         if not self.source_folder or not os.path.exists(self.source_folder):
             return []
-        return [f for f in os.listdir(self.source_folder) if f.lower().endswith('.pdf')]
+        return sorted(
+            (f for f in os.listdir(self.source_folder)
+             if f.lower().endswith('.pdf') and not f.startswith('.')),
+            key=str.lower)
 
+    def _path(self, index):
+        return os.path.join(self.source_folder, self.files[index])
+
+    # --- Thread plumbing ---
+    def _post(self, fn):
+        """Run fn on the UI thread (safe to call from any thread)."""
+        self.ui_queue.put(fn)
+
+    def _drain_ui_queue(self):
+        if self._closed:
+            return
+        try:
+            while True:
+                self.ui_queue.get_nowait()()
+        except queue.Empty:
+            pass
+        self.after(POLL_MS, self._drain_ui_queue)
+
+    def _fetch_eur_rate(self):
+        self.eur_rate = CurrencyConverter.get_usd_to_eur_rate()
+
+    # --- Extraction ---
     def _start_background_processing(self):
-        """Initialize the processing queue with all files"""
-        # Build list of files to process
-        self.pending_files = []
-        for filename in self.files:
-            filepath = os.path.join(self.source_folder, filename)
-            if filepath not in self.data_cache:
-                self.pending_files.append(filepath)
-        
-        # Start initial batch of workers with staggered delays
-        for i in range(min(MAX_WORKERS, len(self.pending_files))):
-            # Stagger launches to avoid rate limit burst
-            delay_ms = i * WORKER_LAUNCH_DELAY_MS
-            self.after(delay_ms, self._submit_next_file)
+        for i in range(len(self.files)):
+            self._submit(self._path(i))
 
-    def _submit_next_file(self):
-        """Submit the next file from the queue to a worker"""
-        if self.pending_files:
-            filepath = self.pending_files.pop(0)
-            self.processing_count += 1
-            future = self.executor.submit(self._process_file_with_gemini, filepath)
-            future.add_done_callback(lambda f: self._on_worker_done())
-
-    def _on_worker_done(self):
-        """Called when a worker finishes - immediately start next file"""
-        self.processing_count -= 1
-        self._submit_next_file()  # Keep workers busy
+    def _submit(self, filepath):
+        if filepath in self.in_flight:
+            return
+        self.in_flight.add(filepath)
+        self.errors.pop(filepath, None)
+        self.executor.submit(self._process_file_with_gemini, filepath)
 
     def _process_file_with_gemini(self, filepath):
         data = self.gemini.extract_invoice_data(filepath)
-        if data:
-            self.data_cache[filepath] = data
-            # Update counter regardless of current file
-            self.after(0, self._update_completion_counter)
-            self.after(0, self._check_completion_status)
-            # If current file, update UI on main thread
-            if self.files and self.files[self.current_index] in filepath:
-                self.after(0, lambda d=data: self._on_data_ready(d))
-        else:
-            # If no data returned, it failed - still update counter
-            self.after(0, self._update_completion_counter)
+        self._post(lambda: self._on_result(filepath, data))
 
-    def _on_data_ready(self, data):
-        """Called when current file data is ready"""
-        self._populate_fields(data)
-        self.show_form()
+    def _on_result(self, filepath, data):
+        self.in_flight.discard(filepath)
+        if 'error' in data:
+            self.errors[filepath] = data['error']
+        elif filepath not in self.data_cache:  # never overwrite values the user already confirmed
+            self.data_cache[filepath] = data
         self._update_completion_counter()
         self._check_completion_status()
+        if self.files and self._path(self.current_index) == filepath:
+            self._show_current_state()
+
+    def _retry_current(self):
+        self._submit(self._path(self.current_index))
+        self._show_current_state()
+
+    def _show_current_state(self):
+        filepath = self._path(self.current_index)
+        if filepath in self.data_cache:
+            self._populate_fields(self.data_cache[filepath])
+            self.show_form()
+        elif filepath in self.errors:
+            self._populate_fields({'error': self.errors[filepath]})
+            self.show_form()
+        else:
+            self.show_loading()
 
     def _populate_fields(self, data):
-        # Check if data contains an error
+        self.lbl_error.pack_forget()
+        self.btn_retry.pack_forget()
+        self.lbl_warning.pack_forget()
+
         if 'error' in data:
-            # Show error message in red above fields
-            error_msg = data['error']
-            self.lbl_error.configure(text=f"ERROR: {error_msg}")
-            self.lbl_error.pack(anchor="w", padx=15, pady=(15, 10))
-            
-            # Fill fields with placeholder values
-            self.entry_date.delete(0, "end")
-            self.entry_date.insert(0, "YYYY.MM.DD")
-            self.entry_invoice_number.delete(0, "end")
-            self.entry_invoice_number.insert(0, "INV-XXXX")
-            self.entry_value.delete(0, "end")
-            self.entry_value.insert(0, "xx.xx")
-            self.entry_supplier.delete(0, "end")
-            self.entry_supplier.insert(0, "Wxyz")
-        else:
-            # Hide error label
-            self.lbl_error.pack_forget()
-            
-            # Normal data - replace "-" with "." in date
-            date_value = data.get('date', '').replace('-', '.')
-            self.entry_date.delete(0, "end")
-            self.entry_date.insert(0, date_value)
-            self.entry_invoice_number.delete(0, "end")
-            self.entry_invoice_number.insert(0, data.get('invoice_number', ''))
-            self.entry_value.delete(0, "end")
-            self.entry_value.insert(0, str(data.get('total_value', '')))
-            self.entry_supplier.delete(0, "end")
-            self.entry_supplier.insert(0, data.get('supplier', ''))
+            self.lbl_error.configure(
+                text=f"Couldn't read this invoice: {data['error']}\n"
+                     "Try again, or type the values in yourself.")
+            self.lbl_error.pack(anchor="w", padx=15, pady=(15, 5), before=self.fields_anchor)
+            self.btn_retry.pack(anchor="w", padx=15, pady=(0, 5), before=self.fields_anchor)
+            data = {}
+        elif data.get('warning'):
+            self.lbl_warning.configure(text=f"⚠ {data['warning']}")
+            self.lbl_warning.pack(anchor="w", padx=15, pady=(15, 0), before=self.fields_anchor)
+
+        value = data.get('total_value')
+        if isinstance(value, (int, float)):
+            value = f"{value:.2f}"
+        self._set_entry(self.entry_date, (data.get('date') or '').replace('-', '.'))
+        self._set_entry(self.entry_invoice_number, data.get('invoice_number') or '')
+        self._set_entry(self.entry_value, value or '')
+        self._set_entry(self.entry_supplier, data.get('supplier') or '')
         self._update_preview_name()
 
-    def _update_preview_name(self, event=None):
-        date = self.entry_date.get().strip()
-        val = self.entry_value.get().strip()
-        invoice_num = self.entry_invoice_number.get().strip()
-        supplier = self.entry_supplier.get().strip()
-        
-        # Build filename based on selected fields
-        filename_parts = []
-        
-        if self.filename_fields.get('date') and date:
-            date_formatted = date.replace('-', '.')
-            filename_parts.append(date_formatted)
-        
-        if self.filename_fields.get('value') and val:
-            filename_parts.append(val)
-        
-        if self.filename_fields.get('invoice_number') and invoice_num:
-            filename_parts.append(invoice_num)
-        
-        if self.filename_fields.get('supplier') and supplier:
-            filename_parts.append(supplier)
-        
-        # Add original filename with underscore separator if selected
+    @staticmethod
+    def _set_entry(entry, text):
+        entry.delete(0, "end")
+        if text:
+            entry.insert(0, text)
+
+    def _save_current_form(self):
+        """Store whatever is in the form for the invoice on screen (user edits win)."""
+        if not self.files or not self.form_frame.winfo_ismapped():
+            return
+        filepath = self._path(self.current_index)
+        values = {
+            'date': self.entry_date.get().strip(),
+            'invoice_number': self.entry_invoice_number.get().strip(),
+            'total_value': self.entry_value.get().strip(),
+            'supplier': self.entry_supplier.get().strip(),
+        }
+        if filepath in self.errors and not any(values.values()):
+            return  # nothing typed for a failed file; keep it as failed
+        self.errors.pop(filepath, None)
+        self.data_cache[filepath] = values
+        self._update_completion_counter()
+
+    def _build_filename(self, data, original_filename):
+        """'<date> <value> <number> <supplier>_<original>.pdf' using the selected fields, or None."""
+        parts = []
+        value = data.get('total_value', '')
+        if isinstance(value, (int, float)):
+            value = f"{value:.2f}"
+        for key, text in (('date', str(data.get('date') or '').replace('-', '.')),
+                          ('value', str(value or '')),
+                          ('invoice_number', str(data.get('invoice_number') or '')),
+                          ('supplier', str(data.get('supplier') or ''))):
+            if self.filename_fields.get(key) and text.strip():
+                parts.append(text.strip())
+        name = " ".join(parts)
         if self.filename_fields.get('original'):
-            if self.files and self.current_index < len(self.files):
-                original_filename = self.files[self.current_index]
-                original_name_no_ext = os.path.splitext(original_filename)[0]
-                if filename_parts:  # Add underscore if there are other parts
-                    filename_parts.append(f"_{original_name_no_ext}")
-                else:  # No underscore if it's the only field
-                    filename_parts.append(original_name_no_ext)
-        
-        if filename_parts:
-            # Join with spaces, except the original filename which already has underscore
-            new_name = " ".join(filename_parts).replace(" _", "_") + ".pdf"
-            self.lbl_preview_name.configure(text=f"Result: {new_name}")
-        else:
-            self.lbl_preview_name.configure(text="Result: ...")
+            original = os.path.splitext(original_filename)[0]
+            name = f"{name}_{original}" if name else original
+        return f"{name}.pdf" if name else None
+
+    def _update_preview_name(self, event=None):
+        if not self.files:
+            return
+        new_name = self._build_filename({
+            'date': self.entry_date.get(),
+            'total_value': self.entry_value.get(),
+            'invoice_number': self.entry_invoice_number.get(),
+            'supplier': self.entry_supplier.get(),
+        }, self.files[self.current_index])
+        self.lbl_preview_name.configure(text=f"Result: {new_name or '...'}")
 
     def load_current_invoice(self):
         if not self.files:
@@ -452,13 +491,7 @@ class ReviewView(ctk.CTkFrame):
         self.lbl_filename.configure(text=filename)
         self.lbl_progress.configure(text=f"Invoice {self.current_index + 1} of {len(self.files)}")
         
-        # Check Cache
-        if filepath in self.data_cache:
-            self._populate_fields(self.data_cache[filepath])
-            self.show_form()
-        else:
-            # Show Loading (data will arrive from background workers)
-            self.show_loading()
+        self._show_current_state()
 
         # Preview
         threading.Thread(target=self._load_preview_async, args=(filepath,), daemon=True).start()
@@ -479,37 +512,26 @@ class ReviewView(ctk.CTkFrame):
         else:
             self.btn_prev.configure(state="normal")
             
-        # Next Button
-        if self.current_index == len(self.files) - 1:
-             self.btn_next.configure(state="disabled")
-        else:
-             self.btn_next.configure(state="normal")
+        # Next Button: on the last invoice it just confirms the values
+        last = self.current_index == len(self.files) - 1
+        self.btn_next.configure(text="Confirm" if last else "Confirm & Next")
 
     def _queue_next_files(self):
         # No longer needed - workers automatically pick up next files from queue
         pass
 
     def _load_preview_async(self, filepath):
-        try:
-            images = PDFService.get_pdf_images(filepath)
-            self.after(0, lambda: self.pdf_view.load_images(images))
-        except Exception:
-            pass
+        images = PDFService.get_pdf_images(filepath)
+
+        def show():
+            # Ignore previews that arrive after the user has moved on
+            if self.files and self._path(self.current_index) == filepath:
+                self.pdf_view.load_images(images)
+        self._post(show)
 
     def next_invoice(self):
         # 1. Save State for Current File (No renaming yet)
-        filename = self.files[self.current_index]
-        filepath = os.path.join(self.source_folder, filename)
-        
-        if self.form_frame.winfo_ismapped():
-            current_data = {
-                'date': self.entry_date.get().strip(),
-                'invoice_number': self.entry_invoice_number.get().strip(),
-                'total_value': self.entry_value.get().strip(),
-                'supplier': self.entry_supplier.get().strip()
-            }
-            self.data_cache[filepath] = current_data
-        
+        self._save_current_form()
         self._check_completion_status()
 
         # 2. Move Next
@@ -521,24 +543,18 @@ class ReviewView(ctk.CTkFrame):
         """Update the completion counter label"""
         completed = len(self.data_cache)
         total = len(self.files)
-        
-        # Add cost if all completed
-        if completed == total:
-            cost_usd = self.gemini.get_total_cost_usd()
-            cost_eur = CurrencyConverter.usd_to_eur(cost_usd)
-            self.lbl_completion.configure(text=f"Completed: {completed}/{total} | Cost: €{cost_eur:.2f}")
-        else:
-            self.lbl_completion.configure(text=f"Completed: {completed}/{total}")
+        text = f"Completed: {completed}/{total}"
+        if self.errors:
+            text += f" | Failed: {len(self.errors)}"
+        if not self.in_flight:
+            cost_eur = self.gemini.get_total_cost_usd() * (self.eur_rate or 0.92)
+            text += f" | Cost: €{cost_eur:.2f}"
+        self.lbl_completion.configure(text=text)
 
     def _check_completion_status(self):
         """Check if all files have data, show action buttons"""
-        all_processed = True
-        for f in self.files:
-            fp = os.path.join(self.source_folder, f)
-            if fp not in self.data_cache:
-                all_processed = False
-                break
-                
+        # Show the actions once nothing is still being read (failed files can be fixed by hand or skipped)
+        all_processed = bool(self.files) and not self.in_flight
         if all_processed:
             # Check if buttons already packed
             if not self.btn_download_excel.winfo_ismapped():
@@ -551,6 +567,7 @@ class ReviewView(ctk.CTkFrame):
 
     def download_spreadsheet(self):
         """Export invoice data to Excel"""
+        self._save_current_form()
         self.btn_download_excel.configure(state="disabled", text="Exporting...")
         
         # Prepare data with original filename
@@ -578,71 +595,54 @@ class ReviewView(ctk.CTkFrame):
             self.btn_download_excel.configure(state="normal", text="Error - Retry")
 
     def rename_all_files(self):
-        """Batch rename all files in cache"""
+        """Batch rename all files that have values"""
+        self._save_current_form()
+        ready = [f for f in self.files if os.path.join(self.source_folder, f) in self.data_cache]
+        missing = len(self.files) - len(ready)
+        if missing and not messagebox.askyesno(
+                "Some invoices have no values",
+                f"{missing} invoice(s) couldn't be read and have no values, so they will be skipped.\n\n"
+                "Rename the other files anyway?"):
+            return
+        if self.delete_original and not messagebox.askyesno(
+                "Rename files",
+                f"Rename {len(ready)} file(s) into:\n{self.dest_folder}\n\n"
+                "The original files will be deleted after copying."):
+            return
+
         self.btn_rename_all.configure(state="disabled", text="Processing...")
-        
-        success_count = 0
-        for filename in self.files:
+        success_count, failed = 0, []
+        for filename in ready:
             filepath = os.path.join(self.source_folder, filename)
-            if filepath in self.data_cache:
-                data = self.data_cache[filepath]
-                date_str = data.get('date', '')
-                val_str = data.get('total_value', '')
-                invoice_num_str = data.get('invoice_number', '')
-                supplier_str = data.get('supplier', '')
-                
-                # Build filename based on selected fields
-                filename_parts = []
-                
-                if self.filename_fields.get('date') and date_str:
-                    date_formatted = date_str.replace('-', '.')
-                    filename_parts.append(date_formatted)
-                
-                if self.filename_fields.get('value') and val_str:
-                    filename_parts.append(str(val_str))
-                
-                if self.filename_fields.get('invoice_number') and invoice_num_str:
-                    filename_parts.append(str(invoice_num_str))
-                
-                if self.filename_fields.get('supplier') and supplier_str:
-                    filename_parts.append(str(supplier_str))
-                
-                # Add original filename with underscore separator if selected
-                if self.filename_fields.get('original'):
-                    original_name_no_ext = os.path.splitext(filename)[0]
-                    if filename_parts:  # Add underscore if there are other parts
-                        filename_parts.append(f"_{original_name_no_ext}")
-                    else:  # No underscore if it's the only field
-                        filename_parts.append(original_name_no_ext)
-                
-                if filename_parts:
-                    # Join with spaces, except the original filename which already has underscore
-                    new_name = " ".join(filename_parts).replace(" _", "_") + ".pdf"
-                    if FileManager.rename_invoice(
-                        source_path=filepath,
-                        dest_folder=self.dest_folder,
-                        new_filename=new_name,
-                        delete_original=self.delete_original
-                    ):
-                        success_count += 1
-        
-        # Done
+            new_name = self._build_filename(self.data_cache[filepath], filename)
+            if new_name and FileManager.rename_invoice(
+                    source_path=filepath, dest_folder=self.dest_folder,
+                    new_filename=new_name, delete_original=self.delete_original):
+                success_count += 1
+            else:
+                failed.append(filename)
+
         print(f"Batch rename complete. {success_count}/{len(self.files)} successful.")
         self.btn_rename_all.configure(state="normal", text="✓ Renamed")
+        if failed:
+            messagebox.showwarning("Some files were not renamed",
+                                   "These files could not be renamed:\n\n" + "\n".join(failed[:15]))
 
     def prev_invoice(self):
+        self._save_current_form()
         if self.current_index > 0:
             self.current_index -= 1
             self.load_current_invoice()
             
     def _go_home(self):
         # Kill workers
-        self.executor.shutdown(wait=False)
+        self.executor.shutdown(wait=False, cancel_futures=True)
         if self.on_back_home:
             self.on_back_home()
 
     def destroy(self):
+        self._closed = True
         if self.animation_id:
             self.after_cancel(self.animation_id)
-        self.executor.shutdown(wait=False)
+        self.executor.shutdown(wait=False, cancel_futures=True)
         super().destroy()

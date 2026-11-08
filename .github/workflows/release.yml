@@ -1,0 +1,60 @@
+# Builds the Windows installer and the macOS .dmg, and attaches them to a GitHub Release.
+# Trigger: push a tag like v2.0.1  (git tag v2.0.1 && git push origin v2.0.1)
+# or run it manually from the Actions tab (builds only, no release) to test.
+name: Build & Release
+
+on:
+  push:
+    tags: ["v*"]
+    branches: ["v2"]   # test builds while v2 is in progress (no release is published)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements.txt
+      - run: choco install innosetup --no-progress -y
+      - name: Build
+        shell: pwsh
+        run: |
+          $env:PATH += ";C:\Program Files (x86)\Inno Setup 6"
+          ./build_tools/build_windows.ps1
+      - name: Smoke test (app starts and stays up)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist\RJAC Invoice Renamer\RJAC Invoice Renamer.exe" -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { throw "App exited early with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+      - uses: actions/upload-artifact@v4
+        with: { name: windows-installer, path: "dist/*.exe" }
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements.txt
+      - run: ./build_tools/build_mac.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: mac-dmg, path: "dist/*.dmg" }
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

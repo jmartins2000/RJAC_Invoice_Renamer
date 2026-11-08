@@ -2,10 +2,11 @@
 build/
 dist/
 *.spec
+!build_tools/rjac.spec
 
 # Generated icon files (regenerated from logo.png)
 assets/logo_rounded.png
-assets/logo.ico
+assets/RJAC-logo.icns
 
 # Python
 __pycache__/
@@ -27,3 +28,6 @@ ENV/
 
 # Environment variables
 .env
+
+# Real invoice samples (private)
+samples/

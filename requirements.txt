@@ -1,23 +1,14 @@
-# No external dependencies required for running - using tkinter (built-in)
-
-# GUI
-customtkinter
+# Runtime
+customtkinter>=5.2
 packaging
-
-# PDF Processing
-pymupdf
-
-# AI / API
-google-generativeai
+pymupdf>=1.24
+google-genai>=1.40
+pydantic>=2
+keyring>=25
 python-dotenv
-grpcio==1.67.1
-grpcio-status==1.67.1
 requests
-
-# Excel Export
 openpyxl
-
-# For building executable
-pyinstaller
 pillow
-numpy
+
+# Build (packaging the app)
+pyinstaller>=6.10

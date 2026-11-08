@@ -1,37 +1,47 @@
 # RJAC Invoice Renamer
 
-A Python application for renaming invoices.
+Desktop app (Windows and macOS) that reads invoice PDFs with Google Gemini and renames them to
+`<date> <total> <invoice number> <supplier>_<original name>.pdf`, with a review screen to check
+and correct every value before anything is renamed. It can also export the values to Excel.
 
-## Running the Application
+## For users
+
+**Install**
+- **Windows:** download `RJAC-Invoice-Renamer-Setup-<version>.exe` from the latest release and run it.
+  No admin rights needed. If Windows shows "Windows protected your PC", click **More info → Run anyway**
+  (the app isn't code-signed).
+- **macOS:** open `RJAC-Invoice-Renamer-<version>-mac.dmg` and drag the app into Applications.
+  The first time, right-click the app → **Open** (it isn't notarized by Apple).
+
+**First launch:** the app asks for a Gemini API key (get one at https://aistudio.google.com/apikey).
+It's checked and stored in the computer's password store (Windows Credential Manager / macOS Keychain),
+never in the app files. Change it any time with the **API key…** button.
+
+**Updates:** the app checks for a new version on startup and offers **Update now**. On Windows it installs
+and reopens by itself. On macOS it opens the new .dmg so you can replace the app.
+
+## For developers
 
 ```bash
-python main.py
+uv venv -p 3.12 .venv && uv pip install -p .venv -r requirements.txt
+echo "GEMINI_API_KEY=..." > .env      # dev only, gitignored, never bundled
+.venv/bin/python main.py
 ```
 
-## Requirements
+**Model choice / accuracy:** `tools/eval_extraction.py` runs extraction on `samples/` (gitignored, real
+invoices) against `samples/ground_truth.json`, e.g. `python tools/eval_extraction.py --model gemini-3.8-flash`.
+`--legacy` runs the original v1 code as a baseline. The model is set by `DEFAULT_MODEL` in
+`src/services/gemini_service.py` (override with `RJAC_MODEL` env var).
 
-- Python 3.x (tkinter is included by default)
+**Releasing a new version**
+1. Bump `__version__` in `src/version.py`.
+2. Commit, then tag and push: `git tag v2.0.1 && git push origin main v2.0.1`.
+3. GitHub Actions (`.github/workflows/release.yml`) builds the Windows installer and the macOS .dmg,
+   smoke-tests the Windows build, and publishes them as a GitHub Release. Installed apps pick it up
+   on their next start.
 
-## Building an Executable
+The tag must match `__version__`. Update checks read the repo's public Releases
+(`GITHUB_REPO` in `src/version.py`), so the releases must be publicly readable.
 
-### Prerequisites
-
-Install dependencies (including PyInstaller):
-```bash
-pip install -r requirements.txt
-```
-
-### Build
-
-Run the build script from the project root:
-```bash
-build_tools\build_exe.bat
-```
-
-This will:
-1. Prepare the icon (remove white background, round corners, convert to .ico)
-2. Clean old build artifacts
-3. Build the executable with PyInstaller
-
-The executable will be in the `dist\` folder as `RJAC_Invoice_Renamer.exe`.
-
+**Local builds:** `./build_tools/build_mac.sh` (macOS) or `build_tools\build_windows.ps1` (Windows, needs
+Inno Setup 6). Output goes to `dist/`.

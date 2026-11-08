@@ -1,12 +1,18 @@
 import customtkinter as ctk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 import tkinter as tk
 from PIL import Image, ImageTk
 import os
+import sys
+import threading
 
 from src.config import COLORS, APP_CONFIG
 from src.utils import get_resource_path
 from src.ui.review_view import ReviewView
+from src.ui.dialogs import ApiKeyDialog, UpdateDialog
+from src.services import api_key as key_store
+from src.services import updater
+from src.version import __version__
 
 class MainWindow(ctk.CTk):
     def __init__(self):
@@ -64,6 +70,23 @@ class MainWindow(ctk.CTk):
         # --- 3. Footer/Status ---
         self.build_footer()
 
+        self.after(400, self._startup_checks)
+
+    # --- Startup: API key + updates ---
+    def _startup_checks(self):
+        if not key_store.get_api_key():
+            ApiKeyDialog(self, first_run=True)
+        if getattr(sys, "frozen", False) or os.environ.get("RJAC_CHECK_UPDATES"):
+            threading.Thread(target=self._check_updates, daemon=True).start()
+
+    def _check_updates(self):
+        info = updater.check_for_update()
+        if info:
+            self.after(0, lambda: UpdateDialog(self, info, on_quit=self.destroy))
+
+    def open_settings(self):
+        ApiKeyDialog(self)
+
     def build_header(self):
         """Logo and Title"""
         header_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
@@ -102,7 +125,7 @@ class MainWindow(ctk.CTk):
         ]):
             # Re-enable the checkbox that was just unchecked
             # Find which one was unchecked and re-enable it
-            tk.messagebox.showwarning("Invalid Selection", "At least one field must be selected for the filename.")
+            messagebox.showwarning("Invalid Selection", "At least one field must be selected for the filename.")
             # Force re-check by setting all back if none selected
             self.field_date_var.set(True)
     
@@ -119,7 +142,12 @@ class MainWindow(ctk.CTk):
     def show_review_view(self):
         if not self.source_path:
             # Show error if no source folder
-            tk.messagebox.showwarning("Missing Folder", "Please select a Source Directory containing your invoices first.")
+            messagebox.showwarning("Missing Folder", "Please select a Source Directory containing your invoices first.")
+            return
+
+        api_key = key_store.get_api_key()
+        if not api_key:
+            ApiKeyDialog(self, first_run=True)
             return
 
         # Ensure content_area is clear
@@ -136,7 +164,8 @@ class MainWindow(ctk.CTk):
         }
 
         self.review_view = ReviewView(
-            self.content_area, 
+            self.content_area,
+            api_key=api_key,
             source_folder=self.source_path,
             dest_folder=self.dest_path,
             delete_original=self.delete_original_var.get(),
@@ -371,8 +400,14 @@ class MainWindow(ctk.CTk):
         footer_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
         footer_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
         
-        lbl_version = ctk.CTkLabel(footer_frame, text="v1.0.2", text_color="gray", font=ctk.CTkFont(size=10))
+        lbl_version = ctk.CTkLabel(footer_frame, text=f"v{__version__}", text_color="gray", font=ctk.CTkFont(size=10))
         lbl_version.pack(side="right")
+
+        btn_settings = ctk.CTkButton(
+            footer_frame, text="API key…", command=self.open_settings, width=80, height=24,
+            fg_color="transparent", border_width=1, text_color=("gray30", "gray70"),
+            hover_color=("gray85", "gray25"), font=ctk.CTkFont(size=11))
+        btn_settings.pack(side="left")
 
     def select_source_folder(self):
         folder_path = filedialog.askdirectory(title="Select Source Folder")
