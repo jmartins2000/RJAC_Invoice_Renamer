@@ -161,9 +161,9 @@ def is_transient(e):
 def friendly_error(e):
     if isinstance(e, errors.APIError):
         if e.code in (400, 401, 403) and "api key" in str(e).lower():
-            return "The Gemini API key is invalid. Click 'API key…' at the bottom of the window to update it."
+            return "The Gemini API key is invalid. Open Settings to update it."
         if e.code == 403:
-            return "The Gemini API key doesn't have access. Click 'API key…' at the bottom of the window to update it."
+            return "The Gemini API key doesn't have access. Open Settings to update it."
         if e.code == 404:
             return "The AI model used by this version is no longer available. Please update the app."
         if e.code == 429:

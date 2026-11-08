@@ -14,8 +14,8 @@ and correct every value before anything is renamed. It can also export the value
   The first time, right-click the app → **Open** (it isn't notarized by Apple).
 
 **First launch:** the app asks for a Gemini API key (get one at https://aistudio.google.com/apikey).
-It's checked and stored in the computer's password store (Windows Credential Manager / macOS Keychain),
-never in the app files. Change it any time with the **API key…** button.
+It is checked and stored in the computer's password store (Windows Credential Manager / macOS Keychain),
+never in the app files. Change it any time under **Settings**.
 
 **Updates:** the app checks for a new version on startup and offers **Update now**. On Windows it installs
 and reopens by itself. On macOS it opens the new .dmg so you can replace the app.
