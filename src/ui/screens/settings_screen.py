@@ -1,5 +1,4 @@
 """Settings: API key, model/usage, updates."""
-import threading
 import webbrowser
 
 import customtkinter as ctk
@@ -7,7 +6,7 @@ import customtkinter as ctk
 from src.services import api_key as key_store
 from src.services import settings, updater
 from src.services.gemini_service import DEFAULT_MODEL, validate_api_key
-from src.ui import icons, theme as t
+from src.ui import background, icons, theme as t
 from src.version import __version__
 
 MODEL_LABEL = DEFAULT_MODEL.replace("gemini-", "Gemini ").replace("-flash", " Flash").replace("-pro", " Pro")
@@ -116,10 +115,7 @@ class SettingsScreen(ctk.CTkFrame):
             return
         self.btn_key.configure(state="disabled", text="Checking…")
 
-        def work():
-            err = validate_api_key(key)
-            self.after(0, lambda: self._key_checked(key, err))
-        threading.Thread(target=work, daemon=True).start()
+        background.run(self, lambda: validate_api_key(key), lambda err: self._key_checked(key, err))
 
     def _key_checked(self, key, err):
         self.btn_key.configure(state="normal")
@@ -135,10 +131,7 @@ class SettingsScreen(ctk.CTkFrame):
     def _check_updates(self):
         self.btn_update.configure(state="disabled", text="Checking…")
 
-        def work():
-            info = updater.check_for_update()
-            self.after(0, lambda: self._update_checked(info))
-        threading.Thread(target=work, daemon=True).start()
+        background.run(self, updater.check_for_update, self._update_checked)
 
     def _update_checked(self, info):
         self.btn_update.configure(state="normal", text="Check now")

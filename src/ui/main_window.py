@@ -10,7 +10,7 @@ from src.config import APP_CONFIG
 from src.services import api_key as key_store
 from src.services import settings, updater
 from src.services.currency_converter import CurrencyConverter
-from src.ui import theme as t
+from src.ui import background, theme as t
 from src.ui.dialogs import UpdateDialog
 from src.ui.screens.done import DoneScreen
 from src.ui.screens.review import ReviewScreen
@@ -41,7 +41,7 @@ class MainWindow(ctk.CTk):
             self._show(WelcomeScreen(self, on_done=self.show_setup))
 
         if getattr(sys, "frozen", False) or os.environ.get("RJAC_CHECK_UPDATES"):
-            threading.Thread(target=self._check_updates, daemon=True).start()
+            background.run(self, updater.check_for_update, lambda info: info and self._update_found(info))
 
     def _set_icon(self):
         try:
@@ -91,11 +91,6 @@ class MainWindow(ctk.CTk):
                               on_export=export, on_restart=self.show_setup))
 
     # --- updates ---
-    def _check_updates(self):
-        info = updater.check_for_update()
-        if info:
-            self.after(0, lambda: self._update_found(info))
-
     def _update_found(self, info, show_dialog=False):
         self.update_info = info
         if isinstance(self.screen, SetupScreen):

@@ -1,12 +1,11 @@
 """First launch: ask for the Gemini API key."""
-import threading
 import webbrowser
 
 import customtkinter as ctk
 
 from src.services import api_key as key_store
 from src.services.gemini_service import validate_api_key
-from src.ui import icons, theme as t
+from src.ui import background, icons, theme as t
 
 AISTUDIO_URL = "https://aistudio.google.com/apikey"
 
@@ -47,10 +46,7 @@ class WelcomeScreen(ctk.CTkFrame):
         self.btn.configure(state="disabled", text="Checking…")
         self.lbl_error.configure(text="")
 
-        def work():
-            err = validate_api_key(key)
-            self.after(0, lambda: self._checked(key, err))
-        threading.Thread(target=work, daemon=True).start()
+        background.run(self, lambda: validate_api_key(key), lambda err: self._checked(key, err))
 
     def _checked(self, key, err):
         if err:

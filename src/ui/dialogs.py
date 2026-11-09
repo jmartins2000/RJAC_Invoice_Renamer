@@ -1,11 +1,10 @@
 """Update prompt dialog."""
-import threading
 import webbrowser
 
 import customtkinter as ctk
 
 from src.services import updater
-from src.ui import theme as t
+from src.ui import background, theme as t
 
 
 def _center(win, parent, w, h):
@@ -58,14 +57,9 @@ class UpdateDialog(ctk.CTkToplevel):
         self.progress.pack(fill="x", padx=24, pady=(12, 0))
         self.lbl_status.pack(anchor="w", padx=24)
 
-        def work():
-            try:
-                path = updater.download(self.info, progress=lambda f: self.after(0, self.progress.set, f))
-                self.after(0, lambda: self._install(path))
-            except Exception as e:
-                self.after(0, lambda: self._failed(e))
-
-        threading.Thread(target=work, daemon=True).start()
+        box = background.Mailbox(self)
+        background.run(self, lambda: updater.download(self.info, progress=lambda f: box.post(lambda: self.progress.set(f))),
+                       lambda r: self._failed(r) if isinstance(r, Exception) else self._install(r))
 
     def _install(self, path):
         updater.launch_installer(path)
