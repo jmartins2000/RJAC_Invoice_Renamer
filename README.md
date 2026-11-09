@@ -17,6 +17,12 @@ and correct every value before anything is renamed. It can also export the value
 It is checked and stored in the computer's password store (Windows Credential Manager / macOS Keychain),
 never in the app files. Change it any time under **Settings**.
 
+**How it works:** pick a folder, check the values Gemini read for each invoice, then rename them all.
+Invoices are remembered in a local **History** (by file contents), so reopening a folder or renamed files
+costs nothing. In **History** you can filter by quarter/year or folder and export to Excel, or build an
+Excel from any folder ("Excel from a folder"). Under **Settings → Fields** you choose what is read
+(e.g. NIF, VAT) and what goes into the filename and the Excel; the filename separator defaults to ` ~ `.
+
 **Updates:** the app checks for a new version on startup and offers **Update now**. On Windows it installs
 and reopens by itself. On macOS it opens the new .dmg so you can replace the app.
 

@@ -124,7 +124,7 @@ class SetupScreen(ctk.CTkFrame):
         sep_row = ctk.CTkFrame(card, fg_color="transparent")
         sep_row.pack(fill="x", padx=24, pady=(6, 0))
         t.label(sep_row, "Separator", size=13, color=t.LICHEN).pack(side="left", padx=(0, 12))
-        self.sep_labels = {" ~ ": "~", " - ": "-", " _ ": "_", " ": "Space"}
+        self.sep_labels = {" ~ ": "   ~   ", " - ": "   -   ", " _ ": "   _   ", " ": " Space "}
         self.sep_menu = ctk.CTkSegmentedButton(
             sep_row, values=list(self.sep_labels.values()), command=self._set_separator, height=32, width=220,
             font=t.font(13), fg_color=t.SNOWFIELD, selected_color=t.EVERGREEN,

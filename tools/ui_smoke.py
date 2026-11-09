@@ -69,7 +69,7 @@ threading.Thread(target=_watchdog, daemon=True).start()
 from src.ui.main_window import MainWindow  # noqa: E402
 
 app = MainWindow()
-app.geometry("1120x760+40+40")
+# keep the app's own fit-to-screen size
 
 
 def pump(sec):
