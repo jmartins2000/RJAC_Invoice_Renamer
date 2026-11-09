@@ -22,6 +22,25 @@ def feedback_button(parent):
     return b
 
 
+def mac_screen_permission(request=False):
+    """macOS only: True if this app may capture the screen (CGPreflightScreenCaptureAccess).
+    With request=True, asks macOS to show its permission prompt (once)."""
+    if sys.platform != "darwin":
+        return True
+    try:
+        import ctypes
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        fn = cg.CGRequestScreenCaptureAccess if request else cg.CGPreflightScreenCaptureAccess
+        fn.restype = ctypes.c_bool
+        return bool(fn())
+    except Exception:
+        return True  # unknown: just try
+
+
+def open_screen_settings():
+    subprocess.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"])
+
+
 def capture_window(win):
     """Screenshot of the app window (before the feedback window opens)."""
     win.update_idletasks()
@@ -196,6 +215,10 @@ class FeedbackDialog(ctk.CTkToplevel):
     # --- screenshot ---
     def _take(self):
         app = self.master
+        if not mac_screen_permission():
+            mac_screen_permission(request=True)
+            self._permission_help()
+            return
         try:
             self.grab_release()
         except tk.TclError:
@@ -220,6 +243,31 @@ class FeedbackDialog(ctk.CTkToplevel):
         elif failed:
             self.status.configure(text="Couldn't take a screenshot on this computer.", text_color=t.AMBER)
         self._draw_shot()
+
+    def _permission_help(self):
+        self.status.configure(
+            text="macOS needs to allow screenshots for this app: System Settings → Privacy & Security → Screen "
+                 "Recording → turn on \"RJAC Invoice Renamer\", then reopen the app. Or attach an image instead.",
+            text_color=t.AMBER)
+        if not getattr(self, "_help_buttons", None):
+            row = ctk.CTkFrame(self.shot_box, fg_color="transparent")
+            row.pack(anchor="w", pady=(8, 0))
+            t.secondary_button(row, "Open System Settings", command=open_screen_settings, height=34).pack(side="left")
+            t.secondary_button(row, "Choose an image instead", command=self._choose_image, height=34).pack(
+                side="left", padx=8)
+            self._help_buttons = row
+
+    def _choose_image(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(parent=self, title="Choose a screenshot",
+                                          filetypes=[("Images", "*.png *.jpg *.jpeg *.webp")])
+        if path:
+            try:
+                self.full_shot = self.shot = Image.open(path).convert("RGB")
+                self.status.configure(text="")
+            except Exception as e:
+                self.status.configure(text=f"Couldn't open that image: {e}", text_color=t.RED)
+            self._draw_shot()
 
     def _draw_shot(self):
         self.canvas.delete("all")
