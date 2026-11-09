@@ -78,7 +78,7 @@ class RenameDialog(ctk.CTkToplevel):
         t.label(body, f"Rename {count} file{'s' if count != 1 else ''}", size=20, weight="bold").pack(anchor="w")
         notes = []
         if already:
-            notes.append(f"{already} already renamed (left as they are)")
+            notes.append(f"{already} already renamed or duplicates (left as they are)")
         if skipped:
             notes.append(f"{skipped} without values (skipped, left untouched)")
         if notes:
@@ -160,6 +160,8 @@ class ReviewScreen(ctk.CTkFrame):
         self.edited = set()
         self.gemini_reads = 0
         self.renamed_count = 0
+        self.duplicate_of = {}     # path -> filename of the identical file it duplicates (in this folder)
+        self.copy_elsewhere = {}   # path -> where the already-renamed copy of this invoice is
         history.add_project(source_folder)
         self.run_id = history.start_run(source_folder, len(self.files))
 
@@ -322,7 +324,11 @@ class ReviewScreen(ctk.CTkFrame):
         if not force_gemini:
             known = history.get(h)
             if known and needed <= set(known["values"]):
-                self._post(lambda: self._on_result(path, h, known["values"], "history", known["status"]))
+                copy = os.path.join(known["folder"] or "", known["file_name"] or "")
+                elsewhere = (known["status"] == "renamed" and os.path.exists(copy)
+                             and os.path.abspath(copy) != os.path.abspath(path))
+                self._post(lambda: self._on_result(path, h, known["values"], "history", known["status"],
+                                                   copy if elsewhere else None))
                 return
             parsed = fieldmod.parse_filename(os.path.basename(path), self.fields, self.filename_keys,
                                              self.separator)
@@ -332,10 +338,16 @@ class ReviewScreen(ctk.CTkFrame):
         data = self.gemini.extract_invoice_data(path)
         self._post(lambda: self._on_result(path, h, data, "gemini", None))
 
-    def _on_result(self, path, h, data, source, status):
+    def _on_result(self, path, h, data, source, status, copy_elsewhere=None):
         self.in_flight.discard(path)
         if h:
             self.hashes[path] = h
+            twin = next((p for p, x in self.hashes.items() if x == h and p != path), None)
+            if twin:  # identical file already in this folder: the later name is the duplicate
+                first, later = sorted([twin, path], key=lambda p: self.files.index(os.path.basename(p)))
+                self.duplicate_of[later] = os.path.basename(first)
+        if copy_elsewhere:
+            self.copy_elsewhere[path] = copy_elsewhere
         if "error" in data:
             self.errors[path] = data["error"]
         else:
@@ -373,6 +385,10 @@ class ReviewScreen(ctk.CTkFrame):
             return "reading"
         if path in self.errors and path not in self.values:
             return "error"
+        if path in self.duplicate_of:
+            return "duplicate"
+        if path in self.copy_elsewhere:
+            return "renamed"
         st = self.status.get(path)
         if st in ("confirmed", "renamed"):
             return st
@@ -429,6 +445,14 @@ class ReviewScreen(ctk.CTkFrame):
         if path in self.errors and path not in self.values:
             self._notice(f"Couldn't read this invoice: {self.errors[path]}\nTry again, or type the values yourself.",
                          error=True)
+        elif path in self.duplicate_of:
+            self._notice(f"Duplicate: this is the same file as {self.duplicate_of[path]}. "
+                         "It won't be renamed or counted twice.", error=False)
+        elif path in self.copy_elsewhere:
+            where = self.copy_elsewhere[path]
+            self._notice(f"Already renamed: the renamed copy is in \"{os.path.basename(os.path.dirname(where))}\" "
+                         f"as {os.path.basename(where)}. This original won't be renamed again.",
+                         error=False, info=True)
         elif self.warnings.get(path):
             self._notice(self.warnings[path], error=False, retry=True)
         elif not data.get("date") or data.get("total_value") in (None, ""):
@@ -525,7 +549,9 @@ class ReviewScreen(ctk.CTkFrame):
         for f in self.files:
             path = os.path.join(self.source_folder, f)
             v = self._usable(path)
-            if not v:
+            if path in self.duplicate_of or path in self.copy_elsewhere:
+                done.append(f)
+            elif not v:
                 skipped.append(f)
             elif self._filename_for(v, f) == f:
                 done.append(f)
@@ -544,8 +570,10 @@ class ReviewScreen(ctk.CTkFrame):
         for f in self.files:
             path = os.path.join(self.source_folder, f)
             v = self._usable(path)
-            if v:
-                rows.append({"values": v, "file_name": f, "folder": self.source_folder,
+            if v and path not in self.duplicate_of:
+                where = self.copy_elsewhere.get(path)
+                rows.append({"values": v, "file_name": os.path.basename(where) if where else f,
+                             "folder": os.path.dirname(where) if where else self.source_folder,
                              "original_name": self._original_name(path)})
         return rows
 
@@ -580,7 +608,7 @@ class ReviewScreen(ctk.CTkFrame):
                         history.moved(h, new_path)
                 else:
                     failed.append(f)
-            if v:
+            if v and path not in self.duplicate_of:
                 rows.append({"values": v, "file_name": new_name, "original_name": original,
                              "folder": dest if f in todo and f not in failed else self.source_folder})
         self.renamed_count += renamed

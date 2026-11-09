@@ -52,7 +52,6 @@ class FolderScreen(ctk.CTkFrame):
         head.pack(fill="x", pady=(0, 10))
         self.lbl_count = t.eyebrow(head, "")
         self.lbl_count.pack(side="left")
-        t.link_button(head, "Open in review", command=lambda: self.on_review(self.path, False)).pack(side="right")
         self.table = InvoiceTable(main, [f for f in self.fields if f.in_excel][:5], extra=("_file", "_status"))
         self.table.pack(fill="both", expand=True)
         rows = history.query(folder=path)
@@ -139,7 +138,7 @@ class FolderScreen(ctk.CTkFrame):
             if cost:
                 self.btn_main.configure(text=f"Read {n} new PDF{'s' if n != 1 else ''} · ~€{max(0.01, n * cost * self.eur_rate):.2f}")
         else:
-            self.btn_main.configure(text="Review folder", state="normal")
+            self.btn_main.configure(text="Review & rename", state="normal")
 
     def _remove(self):
         from tkinter import messagebox

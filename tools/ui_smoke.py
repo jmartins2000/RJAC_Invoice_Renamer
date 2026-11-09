@@ -41,6 +41,9 @@ for name, values in FAKE:
     doc.close()  # Windows can't delete/rename files that are still open
     history.save(history.fingerprint(path), values, "read", path, model="gemini-3.8-flash")
 
+import shutil  # noqa: E402
+shutil.copy(os.path.join(inv, "EDP outubro.pdf"), os.path.join(inv, "TESTE.pdf"))  # an exact copy
+
 errors = []
 import tkinter  # noqa: E402
 
@@ -117,15 +120,36 @@ try:
             errors.append("trackpad did not scroll the invoice list")
     except tkinter.TclError:
         print("trackpad event not supported by this Tk (8.6): trackpads send <MouseWheel> there")
+    teste = os.path.join(inv, "TESTE.pdf")
+    if teste not in rv.duplicate_of:
+        errors.append(f"copy TESTE.pdf not flagged as duplicate: {rv.duplicate_of}")
+    else:
+        print("duplicate flagged:", "TESTE.pdf ->", rv.duplicate_of[teste])
+        rv._goto(rv.files.index("TESTE.pdf")); shot("2c_review_duplicate")
     rv._goto(2); shot("2b_review_warning")
     rv.rename_all(); shot("3_rename_dialog")
     for w in app.winfo_children():
         if isinstance(w, tkinter.Toplevel):
             w.destroy()
     todo, done, skipped = rv._renamable()
-    rv._do_rename(todo, done, skipped, inv, True); shot("4_done")
+    if "TESTE.pdf" in todo:
+        errors.append("duplicate would be renamed")
+    out_dir = os.path.join(work, "renamed")
+    rv._do_rename(todo, done, skipped, out_dir, False); shot("4_done")   # keep originals, rename into another folder
+    if not os.path.exists(teste):
+        errors.append("duplicate was touched")
     print("files after rename:", sorted(os.listdir(inv))[:4], "...")
     app.screen.btn_export  # Done screen has an export button
+    # Second review of the same folder: kept originals must not be renamed again
+    app.show_review(inv); rv2 = app.screen
+    t0 = time.time()
+    while rv2.in_flight and time.time() - t0 < 30:
+        pump(0.2)
+    todo2 = rv2._renamable()[0]
+    print("second run: elsewhere", len(rv2.copy_elsewhere), "| would rename", todo2)
+    if todo2:
+        errors.append(f"kept originals would be renamed again: {todo2}")
+    rv2._goto(0); shot("4b_review_already_renamed")
     app.show_folder(inv); pump(2); shot("5_folder_after")
     runs = hist.runs(inv)
     print("runs recorded:", [(r["gemini_reads"], r["renamed"]) for r in runs])

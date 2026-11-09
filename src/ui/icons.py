@@ -33,9 +33,9 @@ def status(kind, size=18):
     n = size * S
     pad = S
     colors = {"confirmed": "#3D9D46", "ready": "#3D9D46", "warning": "#B45309", "error": "#B42318",
-              "reading": "#CBD3CD"}
+              "reading": "#CBD3CD", "duplicate": "#8A968E"}
     c = colors[kind]
-    if kind in ("confirmed", "warning", "error"):
+    if kind in ("confirmed", "warning", "error", "duplicate"):
         d.ellipse((pad, pad, n - pad, n - pad), fill=c)
     else:
         w = round(1.5 * S)
@@ -45,6 +45,9 @@ def status(kind, size=18):
                 d.arc((pad + w // 2, pad + w // 2, n - pad - w // 2, n - pad - w // 2), a, a + 20, fill=c, width=w)
         else:
             d.ellipse((pad + w // 2, pad + w // 2, n - pad - w // 2, n - pad - w // 2), outline=c, width=w)
+    if kind == "duplicate":
+        for y in (7.2, 10.8):
+            d.line(_pts([(5.5, y), (12.5, y)], size, 18), fill="white", width=_w(size, 1.8, 18))
     if kind == "confirmed":
         d.line(_pts([(5.5, 9.2), (7.8, 11.4), (12.5, 6.6)], size, 18), fill="white", width=_w(size, 1.9, 18), joint="curve")
     if kind in ("warning", "error"):
