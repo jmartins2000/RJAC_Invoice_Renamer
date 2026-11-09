@@ -34,6 +34,7 @@ jobs:
           if ($p.HasExited) { throw "App exited early with code $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
       - name: UI smoke test (every screen, fake invoices, screenshots)
+        timeout-minutes: 5
         run: python tools/ui_smoke.py ui-shots-windows
       - uses: actions/upload-artifact@v4
         if: always()
@@ -50,6 +51,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: ./build_tools/build_mac.sh
       - name: UI smoke test (every screen, fake invoices, screenshots)
+        timeout-minutes: 5
         run: python tools/ui_smoke.py ui-shots-mac
       - uses: actions/upload-artifact@v4
         if: always()

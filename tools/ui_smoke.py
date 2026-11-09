@@ -36,6 +36,7 @@ for name, values in FAKE:
     page.insert_text((72, 700), f"Total {values['total_value'] or ''}", fontsize=13)
     path = os.path.join(inv, name)
     doc.save(path)
+    doc.close()  # Windows can't delete/rename files that are still open
     history.save(history.fingerprint(path), values, "read", path, model="gemini-3.8-flash")
 
 errors = []
@@ -45,7 +46,25 @@ tkinter.Tk.report_callback_exception = lambda self, *exc: errors.append(exc)
 from tkinter import messagebox  # noqa: E402
 
 messagebox.askyesno = messagebox.askokcancel = lambda *a, **k: True
+dialogs = []
+for _name in ("showwarning", "showinfo", "showerror"):  # never block on a popup: record it instead
+    setattr(messagebox, _name, lambda *a, _n=_name, **k: dialogs.append((_n, a)))
 from PIL import ImageGrab  # noqa: E402
+import threading  # noqa: E402
+
+
+def _watchdog():
+    """If the UI hangs, save what's on screen and stop instead of waiting forever."""
+    time.sleep(120)
+    try:
+        ImageGrab.grab(all_screens=True).save(os.path.join(OUT, "HANG.png"))
+    except Exception:
+        pass
+    print("UI smoke test HUNG for 120s (see HANG.png). Popups seen:", dialogs, flush=True)
+    os._exit(2)
+
+
+threading.Thread(target=_watchdog, daemon=True).start()
 
 from src.ui.main_window import MainWindow  # noqa: E402
 
@@ -91,7 +110,9 @@ except Exception as e:
     errors.append(e)
 app.destroy()
 
-if errors:
+if dialogs:
+    print("Popups shown during the test:", *dialogs, sep="\n")
+if errors or any(d[0] in ("showwarning", "showerror") for d in dialogs):
     print("UI errors:", *errors, sep="\n")
     sys.exit(1)
 print(f"UI smoke OK, screenshots in {OUT}")
