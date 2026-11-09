@@ -9,8 +9,14 @@ python build_tools/prepare_icon.py
 rm -rf build "dist/$NAME" "dist/$NAME.app"
 pyinstaller --noconfirm --distpath dist --workpath build build_tools/rjac.spec
 
-# Ad-hoc sign so macOS treats the bundle as one consistent app.
-codesign --force --deep --sign - "dist/$NAME.app"
+# Sign so macOS treats the bundle as one consistent app. With a local "RJAC Local Signing"
+# certificate (see README), every rebuild keeps the same identity, so permissions granted once
+# (e.g. Screen Recording) stick. Without it (e.g. in CI), fall back to ad-hoc signing.
+if security find-identity -p codesigning 2>/dev/null | grep -q "RJAC Local Signing"; then
+  codesign --force --deep --sign "RJAC Local Signing" "dist/$NAME.app"
+else
+  codesign --force --deep --sign - "dist/$NAME.app"
+fi
 
 DMG="dist/RJAC-Invoice-Renamer-$VERSION-mac.dmg"
 STAGE=$(mktemp -d)

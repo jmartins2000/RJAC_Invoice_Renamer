@@ -56,5 +56,9 @@ gitignored). The admin token lives in `~/.config/rjac/feedback_admin_token`. Red
 The tag must match `__version__`. Update checks read the repo's public Releases
 (`GITHUB_REPO` in `src/version.py`), so the releases must be publicly readable.
 
+**Stable signing on your Mac (optional):** create a self-signed code-signing certificate named
+"RJAC Local Signing" in the login keychain; `build_mac.sh` uses it automatically so macOS permissions
+(Screen Recording for feedback screenshots) survive rebuilds.
+
 **Local builds:** `./build_tools/build_mac.sh` (macOS) or `build_tools\build_windows.ps1` (Windows, needs
 Inno Setup 6). Output goes to `dist/`.
