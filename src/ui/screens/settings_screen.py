@@ -6,6 +6,7 @@ import customtkinter as ctk
 from src.services import api_key as key_store
 from src.services import models, settings, updater
 from src.services.gemini_service import validate_api_key
+from src.ui.feedback_dialog import feedback_button
 from src.ui import background, icons, theme as t
 from src.version import __version__
 
@@ -28,6 +29,7 @@ class SettingsScreen(ctk.CTkFrame):
                       corner_radius=8, fg_color=t.SNOW, hover_color=t.SNOWFIELD, border_width=1,
                       border_color=t.FROST, command=on_back).pack(side="left", padx=(24, 14), pady=14)
         t.label(bar, "Settings", size=15, weight="bold").pack(side="left")
+        feedback_button(bar).pack(side="right", padx=24)
         t.divider(self).pack(fill="x")
 
         col = ctk.CTkFrame(self, fg_color="transparent", width=640)

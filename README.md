@@ -39,6 +39,13 @@ invoices) against `samples/ground_truth.json`, e.g. `python tools/eval_extractio
 `--legacy` runs the original v1 code as a baseline. The model is set by `DEFAULT_MODEL` in
 `src/services/gemini_service.py` (override with `RJAC_MODEL` env var).
 
+**Feedback:** the speech-bubble button (top right of every screen) sends a message, a screenshot
+(drag to crop) and optionally the current folder's files and data to a private Cloudflare inbox
+(`feedback_worker/`, free KV storage; the app can only upload). Read it with
+`python tools/feedback.py` (list) and `python tools/feedback.py get new` (download into `feedback_inbox/`,
+gitignored). The admin token lives in `~/.config/rjac/feedback_admin_token`. Redeploy the inbox with
+`cd feedback_worker && npx wrangler deploy`.
+
 **Releasing a new version**
 1. Bump `__version__` in `src/version.py`.
 2. Commit, then tag and push: `git tag v2.0.1 && git push origin main v2.0.1`.

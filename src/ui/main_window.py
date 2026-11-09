@@ -10,6 +10,7 @@ from src.config import APP_CONFIG
 from src.services import api_key as key_store
 from src.services import history, models, settings, updater
 from src.services.currency_converter import CurrencyConverter
+from src.ui.feedback_dialog import feedback_button
 from src.ui import background, theme as t
 from src.ui.dialogs import UpdateDialog
 from src.ui.screens.done import DoneScreen
@@ -41,6 +42,7 @@ class MainWindow(ctk.CTk):
         scrolling.install(self)
 
         self.screen = None
+        self.context_folder = None  # folder the user is working in (offered in feedback)
         self.show_current = None  # re-creates the current screen (used after changing day/night)
         self.update_info = None
         self.eur_rate = 0.92
@@ -79,6 +81,7 @@ class MainWindow(ctk.CTk):
         screen.pack(fill="both", expand=True)
 
     def show_home(self):
+        self.context_folder = None
         screen = HomeScreen(self, on_open_folder=self.show_folder, on_all_invoices=self.show_all,
                             on_settings=self.show_settings)
         self._show(screen, self.show_home)
@@ -86,6 +89,7 @@ class MainWindow(ctk.CTk):
             screen.show_update(self.update_info, self._open_update)
 
     def show_folder(self, path):
+        self.context_folder = path
         self._show(FolderScreen(self, path, on_back=self.show_home, on_review=self.show_review,
                                 on_customize=lambda: self.show_fields(back=lambda: self.show_folder(path)),
                                 eur_rate=self.eur_rate), lambda: self.show_folder(path))
@@ -95,6 +99,7 @@ class MainWindow(ctk.CTk):
         if not key:
             self._show(WelcomeScreen(self, on_done=lambda: self.show_folder(path)), None)
             return
+        self.context_folder = path
         project = history.project(path) or {}
         dest = project.get("dest_folder") or path
         self._show(ReviewScreen(self, api_key=key, source_folder=path, dest_folder=dest,

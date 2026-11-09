@@ -32,3 +32,9 @@ ENV/
 # Real invoice samples (private)
 samples/
 test-run/
+
+# Feedback downloaded from the app (real invoices) and Worker build files
+feedback_inbox/
+feedback_worker/.wrangler/
+feedback_worker/node_modules/
+.wrangler/

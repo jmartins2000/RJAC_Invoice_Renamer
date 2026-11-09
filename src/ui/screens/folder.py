@@ -7,6 +7,7 @@ import customtkinter as ctk
 from src.services import fields as fieldmod
 from src.services import history, models, settings
 from src.services.excel_exporter import ExcelExporter
+from src.ui.feedback_dialog import feedback_button
 from src.ui import background, icons, theme as t
 from src.ui.screens.home import nice_date, nice_path
 from src.ui.util import EXAMPLE, EXAMPLE_ORIGINAL, shorten
@@ -36,6 +37,7 @@ class FolderScreen(ctk.CTkFrame):
         self.btn_main.pack(side="right", padx=(10, 24))
         self.btn_export = t.secondary_button(bar, "Export to Excel", command=self._export)
         self.btn_export.pack(side="right")
+        feedback_button(bar).pack(side="right", padx=(0, 8))
         t.divider(self).pack(fill="x")
 
         body = ctk.CTkFrame(self, fg_color="transparent")

@@ -5,6 +5,7 @@ import customtkinter as ctk
 
 from src.services import fields as fieldmod
 from src.services import settings
+from src.ui.feedback_dialog import feedback_button
 from src.ui import icons, theme as t
 from src.ui.util import EXAMPLE, EXAMPLE_ORIGINAL
 
@@ -112,6 +113,7 @@ class FieldsScreen(ctk.CTkFrame):
                       border_color=t.FROST, command=on_back).pack(side="left", padx=(24, 14), pady=14)
         t.label(bar, "Fields & filename", size=15, weight="bold").pack(side="left")
         t.primary_button(bar, "+ Add a field", command=self._add, height=36, size=13).pack(side="right", padx=24)
+        feedback_button(bar).pack(side="right", padx=(0, 8))
         t.divider(self).pack(fill="x")
 
         wrap = ctk.CTkFrame(self, fg_color="transparent", width=800)

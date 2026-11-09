@@ -8,6 +8,7 @@ import customtkinter as ctk
 from src.services import fields as fieldmod
 from src.services import history
 from src.services.excel_exporter import ExcelExporter
+from src.ui.feedback_dialog import feedback_button
 from src.ui import icons, theme as t
 from src.ui.table import InvoiceTable
 from src.ui.util import shorten
@@ -57,6 +58,7 @@ class HistoryScreen(ctk.CTkFrame):
         self.btn_export = t.primary_button(bar, "Export to Excel", command=self._export, height=38, size=13)
         self.btn_export.pack(side="right", padx=(10, 24))
         t.secondary_button(bar, "Excel from any folder…", command=self._from_folder).pack(side="right")
+        feedback_button(bar).pack(side="right", padx=(0, 8))
         t.divider(self).pack(fill="x")
 
         body = ctk.CTkFrame(self, fg_color="transparent")

@@ -6,6 +6,7 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 from src.services import history
+from src.ui.feedback_dialog import feedback_button
 from src.ui import background, icons, theme as t
 
 
@@ -90,6 +91,7 @@ class HomeScreen(ctk.CTkFrame):
                       hover_color=t.SNOWFIELD, border_width=1, border_color=t.FROST, text_color=t.INK,
                       font=t.font(13)).pack(side="right", padx=(8, 32))
         t.secondary_button(bar, "All invoices", command=on_all_invoices, height=36).pack(side="right")
+        feedback_button(bar).pack(side="right", padx=(0, 8))
         self.update_slot = ctk.CTkFrame(bar, fg_color="transparent", width=1, height=36)
         self.update_slot.pack(side="right")
         t.divider(self).pack(fill="x")

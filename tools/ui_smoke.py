@@ -16,6 +16,7 @@ os.makedirs(OUT, exist_ok=True)
 work = tempfile.mkdtemp(prefix="rjac-ui-")
 os.environ["RJAC_DATA_DIR"] = os.path.join(work, "data")
 os.environ.setdefault("GEMINI_API_KEY", "AIza-fake-key-for-ui-test")
+os.environ["RJAC_FEEDBACK_URL"] = "http://127.0.0.1:9"  # never send test feedback; exercise the Desktop fallback
 
 import pymupdf  # noqa: E402
 
@@ -190,6 +191,20 @@ try:
     print("excel columns:", header)
     if "Original name" not in header:
         errors.append("Original name missing from Excel")
+    # Feedback: open from the folder screen, send (fails on purpose) -> saved to Desktop
+    from src.ui.feedback_dialog import FeedbackDialog, capture_window
+    app.show_folder(inv); pump(1)
+    fb = FeedbackDialog(app, capture_window(app), folder=inv, screen_name="FolderScreen")
+    pump(1); shot("5b_feedback")
+    fb.text.insert("1.0", "UI test feedback")
+    fb._send()
+    t0 = time.time()
+    while fb.winfo_exists() and fb.btn_send.cget("text") in ("Sending…",) and time.time() - t0 < 60:
+        pump(0.2)
+    print("feedback result:", fb.btn_send.cget("text"), "|", fb.status.cget("text")[:90])
+    if fb.btn_send.cget("text") != "Saved to Desktop":
+        errors.append("feedback fallback did not save to Desktop")
+    fb.destroy()
     app.show_all(); shot("6_all_invoices")
     app.show_fields(); shot("7_fields")
     app.screen.e_sep.delete(0, "end"); app.screen.e_sep.insert(0, " / "); app.screen._sep_changed()

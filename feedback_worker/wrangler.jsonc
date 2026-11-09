@@ -1,0 +1,8 @@
+{
+  // Receives feedback from the RJAC Invoice Renamer app and keeps it in KV (write-only for the app).
+  "name": "rjac-feedback",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-01",
+  "kv_namespaces": [{ "binding": "FEEDBACK", "id": "e45660fbfdb6461991be2dc53bea0494" }]
+  // Secret (not in this file): ADMIN_TOKEN — set with `npx wrangler secret put ADMIN_TOKEN`
+}

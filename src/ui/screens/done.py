@@ -5,6 +5,7 @@ import sys
 
 import customtkinter as ctk
 
+from src.ui.feedback_dialog import feedback_button
 from src.ui import icons, theme as t
 
 
@@ -27,6 +28,7 @@ class DoneScreen(ctk.CTkFrame):
                       image=icons.line_icon("arrow_left"), compound="left", height=34, width=0, corner_radius=8,
                       fg_color=t.SNOW, hover_color=t.SNOWFIELD, border_width=1, border_color=t.FROST,
                       text_color=t.INK, font=t.font(13), command=on_back).pack(side="left", padx=24, pady=14)
+        feedback_button(bar).pack(side="right", padx=24)
         col = ctk.CTkFrame(self, fg_color="transparent")
         col.place(relx=0.5, rely=0.47, anchor="center")
 

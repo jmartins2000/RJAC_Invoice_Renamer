@@ -18,6 +18,7 @@ from src.services.excel_exporter import ExcelExporter
 from src.services.file_manager import FileManager
 from src.services.gemini_service import GeminiService
 from src.services.pdf_service import PDFService
+from src.ui.feedback_dialog import feedback_button
 from src.ui import icons, theme as t
 from src.ui.pdf_preview import PDFPreviewFrame
 
@@ -197,6 +198,7 @@ class ReviewScreen(ctk.CTkFrame):
         self.btn_rename.pack(side="right", padx=(10, 24))
         self.btn_export = t.secondary_button(bar, "Export to Excel", command=self.export_excel)
         self.btn_export.pack(side="right")
+        feedback_button(bar).pack(side="right", padx=(0, 8))
         t.divider(self).pack(fill="x")
 
         main = ctk.CTkFrame(self, fg_color=t.SNOW, corner_radius=0)
