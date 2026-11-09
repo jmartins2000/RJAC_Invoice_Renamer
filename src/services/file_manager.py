@@ -42,7 +42,7 @@ class FileManager:
             
             # Copy file
             shutil.copy2(source_path, dest_path)
-            print(f"✓ Processed: {dest_path}")
+            print(f"Processed: {dest_path}")
             
             # Delete original if requested
             if delete_original:
