@@ -14,8 +14,8 @@ and correct every value before anything is renamed. It can also export the value
   The first time, right-click the app → **Open** (it isn't notarized by Apple).
 
 **First launch:** the app asks for a Gemini API key (get one at https://aistudio.google.com/apikey).
-It is checked and stored in the computer's password store (Windows Credential Manager / macOS Keychain),
-never in the app files. Change it any time under **Settings**.
+It is checked and saved in the app's data folder for that user only (never inside the app itself),
+so there are no password prompts. Change it any time under **Settings**.
 
 **How it works:** pick a folder, check the values Gemini read for each invoice, then rename them all.
 Invoices are remembered in a local **History** (by file contents), so reopening a folder or renamed files

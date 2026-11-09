@@ -39,8 +39,8 @@ class SettingsScreen(ctk.CTkFrame):
         t.label(head, "Gemini API key", size=16, weight="bold").pack(side="left")
         self.pill = ctk.CTkLabel(head, text="", corner_radius=999, font=t.font(12, "bold"), height=24)
         self.pill.pack(side="right")
-        t.label(col, "Used to read your invoices. It's stored in this computer's password store and "
-                     "never leaves it, except to talk to Google.",
+        t.label(col, "Used to read your invoices. It's saved on this computer for your user only, and is "
+                     "only ever sent to Google.",
                 size=14, color=t.LICHEN, wraplength=640).pack(anchor="w", fill="x", pady=(12, 14))
 
         row = ctk.CTkFrame(col, fg_color="transparent")

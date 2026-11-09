@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 # Developer convenience only: a .env next to the source code may provide GEMINI_API_KEY.
 # Packaged builds never include a .env; the key is entered in the app and kept in the
-# operating system's password store (see src/services/api_key.py).
+# app's data folder on this computer (see src/services/api_key.py).
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
 # UI Colors
