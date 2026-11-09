@@ -9,7 +9,7 @@ import re
 AT_PATTERN = re.compile(r"^A:\d{9}\*B:")
 
 
-def _images(path, widths=(1400, 2200)):
+def _images(path, widths=(1000, 1400, 2200)):
     """Yields (page index, PIL image) at a few resolutions (pages can be tiny, e.g. 32x61 pt scans)."""
     from PIL import Image, ImageOps
     from src.services.file_types import is_image
@@ -60,8 +60,20 @@ def read(path):
     except ImportError:
         return None
     try:
+        from PIL import ImageOps
+        gh = zxingcpp.Binarizer.GlobalHistogram
+        # Default reader first; then a global black/white threshold, which copes better with
+        # crumpled or unevenly lit receipts; then the same on a contrast-stretched grey image.
+        strategies = (lambda im: zxingcpp.read_barcodes(im),
+                      lambda im: zxingcpp.read_barcodes(im, binarizer=gh),
+                      lambda im: zxingcpp.read_barcodes(ImageOps.autocontrast(im.convert("L")), binarizer=gh))
         for page, img in _images(path):
-            for r in zxingcpp.read_barcodes(img):
+            results = []
+            for strategy in strategies:
+                results = [r for r in strategy(img) if AT_PATTERN.match(r.text.strip())]
+                if results:
+                    break
+            for r in results:
                 parsed = parse(r.text)
                 if parsed:
                     p = r.position
