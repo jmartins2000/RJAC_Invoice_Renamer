@@ -38,3 +38,4 @@ feedback_inbox/
 feedback_worker/.wrangler/
 feedback_worker/node_modules/
 .wrangler/
+.worktrees/
