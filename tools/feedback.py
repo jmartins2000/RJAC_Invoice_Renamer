@@ -4,6 +4,8 @@
   python tools/feedback.py get ID     download + unzip into feedback_inbox/ID/
   python tools/feedback.py get new    download everything not downloaded yet
   python tools/feedback.py delete ID  remove it from the inbox (after you've downloaded it)
+  python tools/feedback.py harvest ID add its QR-verified receipts to the private test dataset
+                                      (samples/ = github.com/jmartins2000/RJAC-test-data) and push
 
 Uses the private admin token in ~/.config/rjac/feedback_admin_token (never in the repo).
 New submissions can take up to a minute to show up in the list (Cloudflare KV).
@@ -49,6 +51,57 @@ def get(sid, meta=None):
     print(f"{sid}: saved to {os.path.relpath(out, ROOT)}")
 
 
+def harvest(sid):
+    """Copy every receipt whose official AT QR is readable into the test dataset, with the QR values as truth."""
+    import hashlib
+    import shutil
+    import subprocess
+    sys.path.insert(0, ROOT)
+    from src.services import qr_at
+    pkg = os.path.join(INBOX, sid, "folder", "files")
+    if not os.path.isdir(pkg):
+        get(sid)
+    if not os.path.isdir(pkg):
+        sys.exit("This feedback has no folder files.")
+    samples = os.path.join(ROOT, "samples")
+    gt_path = os.path.join(samples, "ground_truth.json")
+    gt = json.load(open(gt_path, encoding="utf-8"))
+    sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()  # noqa: E731
+    have = set()
+    for dirpath, _, names in os.walk(samples):
+        if ".git" in dirpath:
+            continue
+        have.update(sha(os.path.join(dirpath, n)) for n in names if not n.endswith((".json", ".md")))
+    dest_rel = f"uncle-feedback-{sid[:8]}"
+    dest = os.path.join(samples, dest_rel)
+    os.makedirs(dest, exist_ok=True)
+    n = len([x for x in os.listdir(dest) if not x.startswith(".")])
+    added = skipped = 0
+    for f in sorted(os.listdir(pkg)):
+        src = os.path.join(pkg, f)
+        if sha(src) in have:
+            skipped += 1
+            continue
+        q = qr_at.read(src)
+        if not q:
+            continue
+        n += 1
+        name = f"r{n:02d}{os.path.splitext(f)[1].lower()}"
+        shutil.copy(src, os.path.join(dest, name))
+        gt[f"{dest_rel}/{name}"] = {"date": q["date"], "total_value": q["total_value"],
+                                    "invoice_number": [q["invoice_number"]], "supplier": [""]}
+        have.add(sha(src))
+        added += 1
+    json.dump(gt, open(gt_path, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    print(f"{sid}: added {added} QR-verified receipts, {skipped} already in the dataset")
+    if added:
+        subprocess.run(["git", "-C", samples, "add", "-A"], check=True)
+        subprocess.run(["git", "-C", samples, "commit", "-qm", f"Harvest {added} QR-verified receipts from feedback {sid}"],
+                       check=True)
+        subprocess.run(["git", "-C", samples, "push", "-q"], check=True)
+        print("dataset pushed to the private repo")
+
+
 def main():
     args = sys.argv[1:]
     if not args:
@@ -68,6 +121,8 @@ def main():
                     get(m["id"], m["meta"])
         else:
             get(args[1])
+    elif args[0] == "harvest" and len(args) == 2:
+        harvest(args[1])
     elif args[0] == "delete" and len(args) == 2:
         print(api("DELETE", f"/admin/{args[1]}").json())
     else:
