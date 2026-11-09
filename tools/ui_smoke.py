@@ -278,7 +278,7 @@ try:
     app.show_settings(); shot("8_settings")
     # Small window: the whole Settings page must be reachable by scrolling
     app.geometry("1000x520"); pump(1); app.show_settings(); pump(1)
-    sc = next(w for w in app.screen.winfo_children() if isinstance(w, __import__("customtkinter").CTkScrollableFrame))
+    sc = app.screen.scroll
     view0 = sc._parent_canvas.yview()
     target = sc.winfo_children()[0] if sc.winfo_children() else sc
     target.event_generate("<MouseWheel>", delta=-120); pump(0.4)
@@ -299,6 +299,6 @@ app.destroy()
 if dialogs:
     print("Popups shown during the test:", *dialogs, sep="\n")
 if errors or any(d[0] in ("showwarning", "showerror") for d in dialogs):
-    print("UI errors:", *errors, sep="\n")
+    print("UI errors:", *[repr(e) for e in errors], sep="\n")
     sys.exit(1)
 print(f"UI smoke OK, screenshots in {OUT}")

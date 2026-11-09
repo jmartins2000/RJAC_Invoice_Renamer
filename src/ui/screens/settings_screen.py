@@ -36,6 +36,7 @@ class SettingsScreen(ctk.CTkFrame):
         scroll = ctk.CTkScrollableFrame(self, fg_color=t.SNOW, corner_radius=0, scrollbar_button_color=t.FROST,
                                         scrollbar_button_hover_color=t.FIELD_BORDER)
         scroll.pack(fill="both", expand=True)
+        self.scroll = scroll
         col = ctk.CTkFrame(scroll, fg_color="transparent", width=640)
         col.pack(pady=(44, 32))
 
