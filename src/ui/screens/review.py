@@ -434,6 +434,11 @@ class ReviewScreen(ctk.CTkFrame):
     def _load_preview(self, path):
         images = PDFService.get_pdf_images(path, target_width=760)  # sharp enough to zoom in
         self._post(lambda: self.preview.load_images(images, path) if self._path(self.current) == path else None)
+        from src.services import qr_at
+        qr = qr_at.read(path)  # where the official QR code is, to outline it on the preview
+        if qr and qr.get("box"):
+            self._post(lambda: self.preview.set_highlight(qr["page"], qr["box"])
+                       if self._path(self.current) == path else None)
 
     def _show_values(self):
         path = self._path(self.current)

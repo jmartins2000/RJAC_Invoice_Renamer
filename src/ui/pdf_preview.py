@@ -23,6 +23,7 @@ class PDFPreviewFrame(ctk.CTkFrame):
         super().__init__(master, fg_color=t.SNOWFIELD, corner_radius=0, **kwargs)
         self.pil_images = []
         self.path = None
+        self.highlight = None  # (page, (x0, y0, x1, y1) fractions) — e.g. the AT QR code
         self.zoom_i = 0
         self._photos = []
         self._last_fit = 0
@@ -73,7 +74,15 @@ class PDFPreviewFrame(ctk.CTkFrame):
         self.canvas.create_text(w / 2, 80, text=text, fill=t.c(t.LICHEN), font=(t.SANS, 13))
         self.canvas.configure(scrollregion=(0, 0, w, h))
 
+    def set_highlight(self, page, box):
+        """Outline a region of a page (fractions of the page), e.g. where the QR code was read."""
+        self.highlight = (page, box) if box else None
+        if self.pil_images:
+            self._render(keep_view=self.zoom_i > 0, center=self._view_center())
+
     def load_images(self, pil_images, path=None):
+        if path and path != self.path:
+            self.highlight = None
         self.path = path or self.path
         self.pil_images = pil_images or []
         self.zoom_i = 0
@@ -117,13 +126,15 @@ class PDFPreviewFrame(ctk.CTkFrame):
         self._photos = []
         y = PAD
         canvas_w = max(self.canvas.winfo_width(), width + 2 * PAD)
-        for img in self.pil_images:
+        for i, img in enumerate(self.pil_images):
             h = int(width * img.height / img.width)
             photo = ImageTk.PhotoImage(img.resize((width, h), Image.Resampling.LANCZOS))
             self._photos.append(photo)
             x = (canvas_w - width) // 2
             self.canvas.create_rectangle(x - 1, y - 1, x + width, y + h, outline=t.c(t.FROST), fill="#FFFFFF")
             self.canvas.create_image(x, y, image=photo, anchor="nw")
+            if self.highlight and self.highlight[0] == i:
+                self._draw_highlight(x, y, width, h, self.highlight[1])
             y += h + GAP
         self.canvas.configure(scrollregion=(0, 0, canvas_w, y + PAD - GAP))
         self.lbl_zoom.configure(text=f"{int(ZOOMS[self.zoom_i] * 100)}%")
@@ -135,6 +146,19 @@ class PDFPreviewFrame(ctk.CTkFrame):
         else:
             self.canvas.xview_moveto(0)
             self.canvas.yview_moveto(0)
+
+    def _draw_highlight(self, x, y, w, h, box):
+        green = t.c(t.NEEDLE)
+        pad = 6
+        x0, y0 = x + box[0] * w - pad, y + box[1] * h - pad
+        x1, y1 = x + box[2] * w + pad, y + box[3] * h + pad
+        self.canvas.create_rectangle(x0, y0, x1, y1, outline=green, width=3)
+        label = "AT QR ✓"
+        tag_w = 8 * len(label) + 14
+        ty = y0 - 24 if y0 - 24 > y else y1 + 2
+        self.canvas.create_rectangle(x0, ty, x0 + tag_w, ty + 22, outline=green, fill=green)
+        self.canvas.create_text(x0 + 7, ty + 11, text=label, anchor="w", fill="#FFFFFF",
+                                font=(t.SANS, 11, "bold"))
 
     def _view_center(self):
         x0, x1 = self.canvas.xview()

@@ -1,4 +1,4 @@
-__version__ = "2.0.3"
+__version__ = "2.0.4"
 
 # Where the app looks for new versions (GitHub Releases).
 GITHUB_REPO = "jmartins2000/RJAC_Invoice_Renamer"

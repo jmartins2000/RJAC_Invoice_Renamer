@@ -68,6 +68,10 @@ _qr = qr_at.read(_receipt_path)
 print("AT QR read:", _qr)
 if not _qr or _qr.get("date") != "2026-06-06" or _qr.get("total_value") != 50.0 or _qr.get("invoice_number") != "FS 274062002/668058":
     errors.append(f"AT QR not read correctly: {_qr}")
+shutil.copy(_receipt_path, os.path.join(inv, "talao com qr.png"))
+history.save(history.fingerprint(os.path.join(inv, "talao com qr.png")),
+             {"date": "2026-06-06", "total_value": 50.0, "invoice_number": "FS 274062002/668058",
+              "supplier": "Fuelgest24"}, "read", os.path.join(inv, "talao com qr.png"))
 import tkinter  # noqa: E402
 
 tkinter.Tk.report_callback_exception = lambda self, *exc: errors.append(exc)
@@ -156,6 +160,11 @@ try:
             errors.append("preview zoom did not enlarge the page")
         shot("2d_review_zoom_200")
         pv.set_zoom(0)
+    rv._goto(rv.files.index("talao com qr.png")); pump(3)
+    print("QR outline on preview:", rv.preview.highlight)
+    if not rv.preview.highlight:
+        errors.append("QR code not outlined on the preview")
+    shot("2e_review_qr_outline")
     teste = os.path.join(inv, "TESTE.pdf")
     if teste not in rv.duplicate_of:
         errors.append(f"copy TESTE.pdf not flagged as duplicate: {rv.duplicate_of}")
