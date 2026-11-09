@@ -1,64 +1,159 @@
-"""Scrollable PDF page preview: white pages with a hairline border on a light panel."""
+"""Invoice preview with zoom: pages on a scrollable canvas.
+
+- Pages are rendered at high resolution once, then resized for the current zoom.
+- Zoom: −/+ buttons, Fit, Ctrl/⌘ + mouse wheel, double-click (fit ↔ 200%).
+- Pan: drag with the mouse, wheel/trackpad (see ui/scrolling.py).
+- "Open" shows the file in the computer's own viewer (always full quality).
+"""
+import tkinter as tk
+
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageTk
 
 from src.ui import theme as t
 
+ZOOMS = [1.0, 1.25, 1.5, 2.0, 2.5, 3.0]  # relative to "fit width"
+PAD = 24   # space around pages
+GAP = 16   # space between pages
+MAX_FIT_WIDTH = 760
 
-class PDFPreviewFrame(ctk.CTkScrollableFrame):
-    MAX_PAGE_WIDTH = 620
 
+class PDFPreviewFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
-        super().__init__(master, fg_color=t.SNOWFIELD, corner_radius=0,
-                         scrollbar_button_color=t.FROST, scrollbar_button_hover_color=t.FIELD_BORDER, **kwargs)
+        super().__init__(master, fg_color=t.SNOWFIELD, corner_radius=0, **kwargs)
         self.pil_images = []
-        self._widgets = []
-        self._refs = []
-        self._width = 0
-        self._message = None
-        self.bind("<Configure>", self._on_resize)
+        self.path = None
+        self.zoom_i = 0
+        self._photos = []
+        self._last_fit = 0
 
+        self.canvas = tk.Canvas(self, bg=t.c(t.SNOWFIELD), highlightthickness=0, bd=0, cursor="fleur")
+        self.canvas._rjac_scrollable = True  # scrolled by ui/scrolling.py (both directions)
+        self.vbar = ctk.CTkScrollbar(self, orientation="vertical", command=self.canvas.yview,
+                                     button_color=t.FROST, button_hover_color=t.FIELD_BORDER)
+        self.hbar = ctk.CTkScrollbar(self, orientation="horizontal", command=self.canvas.xview,
+                                     button_color=t.FROST, button_hover_color=t.FIELD_BORDER, height=12)
+        self.canvas.configure(yscrollcommand=self.vbar.set, xscrollcommand=self._xset)
+        self.vbar.pack(side="right", fill="y", pady=4)
+        self.canvas.pack(side="top", fill="both", expand=True)
+
+        self.canvas.bind("<Configure>", self._on_resize)
+        self.canvas.bind("<ButtonPress-1>", lambda e: self.canvas.scan_mark(e.x, e.y))
+        self.canvas.bind("<B1-Motion>", lambda e: self.canvas.scan_dragto(e.x, e.y, gain=1))
+        self.canvas.bind("<Double-Button-1>", self._toggle_zoom)
+        for seq in ("<Control-MouseWheel>", "<Command-MouseWheel>"):
+            try:
+                self.canvas.bind(seq, self._wheel_zoom)
+            except tk.TclError:
+                pass
+
+        # Toolbar floating at the top right
+        bar = ctk.CTkFrame(self, fg_color=t.SNOW, corner_radius=8, border_width=1, border_color=t.FROST)
+        bar.place(relx=1.0, x=-22, y=10, anchor="ne")
+        btn = dict(width=30, height=28, corner_radius=6, fg_color="transparent", hover_color=t.SNOWFIELD,
+                   text_color=t.INK, font=t.font(15))
+        ctk.CTkButton(bar, text="−", command=lambda: self.set_zoom(self.zoom_i - 1), **btn).pack(
+            side="left", padx=(4, 0), pady=3)
+        self.lbl_zoom = ctk.CTkLabel(bar, text="Fit", width=44, font=t.font(12), text_color=t.LICHEN)
+        self.lbl_zoom.pack(side="left")
+        ctk.CTkButton(bar, text="+", command=lambda: self.set_zoom(self.zoom_i + 1), **btn).pack(side="left")
+        ctk.CTkFrame(bar, width=1, height=18, fg_color=t.FROST).pack(side="left", padx=4)
+        ctk.CTkButton(bar, text="Fit", command=lambda: self.set_zoom(0),
+                      **{**btn, "width": 36, "font": t.font(12)}).pack(side="left")
+        ctk.CTkButton(bar, text="Open ↗", command=self._open,
+                      **{**btn, "width": 58, "font": t.font(12)}).pack(side="left", padx=(0, 4))
+
+    # --- public API (used by the review screen) ---
     def show_message(self, text):
-        self._clear()
         self.pil_images = []
-        self._message = t.label(self, text, size=13, color=t.LICHEN)
-        self._message.pack(pady=60)
-        self._widgets.append(self._message)
+        self._photos = []
+        self.canvas.delete("all")
+        self._hide_hbar()
+        w, h = max(self.canvas.winfo_width(), 200), max(self.canvas.winfo_height(), 200)
+        self.canvas.create_text(w / 2, 80, text=text, fill=t.c(t.LICHEN), font=(t.SANS, 13))
+        self.canvas.configure(scrollregion=(0, 0, w, h))
 
-    def load_images(self, pil_images):
+    def load_images(self, pil_images, path=None):
+        self.path = path or self.path
         self.pil_images = pil_images or []
+        self.zoom_i = 0
         if not self.pil_images:
             self.show_message("No preview available for this file")
             return
-        self._render(self._page_width())
+        self._render(keep_view=False)
 
-    def _page_width(self):
-        w = self.winfo_width()
+    # --- zoom ---
+    def set_zoom(self, i):
+        i = max(0, min(len(ZOOMS) - 1, i))
+        if i == self.zoom_i or not self.pil_images:
+            return
+        center = self._view_center()
+        self.zoom_i = i
+        self._render(keep_view=True, center=center)
+
+    def _toggle_zoom(self, _e):
+        self.set_zoom(0 if self.zoom_i else ZOOMS.index(2.0))
+
+    def _wheel_zoom(self, e):
+        self.set_zoom(self.zoom_i + (1 if e.delta > 0 else -1))
+        return "break"
+
+    # --- drawing ---
+    def _fit_width(self):
+        w = self.canvas.winfo_width()
         if w <= 1:
             w = 520
-        return int(min(self.MAX_PAGE_WIDTH, max(200, w - 64)))
+        return int(min(MAX_FIT_WIDTH, max(200, w - 2 * PAD)))
 
-    def _on_resize(self, _event):
-        if self.pil_images:
-            new = self._page_width()
-            if abs(new - self._width) >= 24:
-                self._render(new)
-
-    def _clear(self):
-        for w in self._widgets:
-            w.destroy()
-        self._widgets, self._refs = [], []
-
-    def _render(self, width):
-        self._clear()
-        self._width = width
-        for i, img in enumerate(self.pil_images):
+    def _render(self, keep_view, center=None):
+        fit = self._fit_width()
+        self._last_fit = fit
+        width = int(fit * ZOOMS[self.zoom_i])
+        self.canvas.delete("all")
+        self._photos = []
+        y = PAD
+        canvas_w = max(self.canvas.winfo_width(), width + 2 * PAD)
+        for img in self.pil_images:
             h = int(width * img.height / img.width)
-            # Pre-scale to 2x display size: sharp on retina, cheap to draw.
-            src = img if img.width <= width * 2 else img.resize((width * 2, h * 2), Image.Resampling.LANCZOS)
-            cimg = ctk.CTkImage(light_image=src, dark_image=src, size=(width, h))
-            frame = ctk.CTkFrame(self, fg_color=t.SNOW, border_width=1, border_color=t.FROST, corner_radius=4)
-            frame.pack(pady=(28 if i == 0 else 0, 16))
-            ctk.CTkLabel(frame, text="", image=cimg).pack(padx=1, pady=1)
-            self._widgets.append(frame)
-            self._refs.append(cimg)
+            photo = ImageTk.PhotoImage(img.resize((width, h), Image.Resampling.LANCZOS))
+            self._photos.append(photo)
+            x = (canvas_w - width) // 2
+            self.canvas.create_rectangle(x - 1, y - 1, x + width, y + h, outline=t.c(t.FROST), fill="#FFFFFF")
+            self.canvas.create_image(x, y, image=photo, anchor="nw")
+            y += h + GAP
+        self.canvas.configure(scrollregion=(0, 0, canvas_w, y + PAD - GAP))
+        self.lbl_zoom.configure(text="Fit" if self.zoom_i == 0 else f"{int(ZOOMS[self.zoom_i] * 100)}%")
+        if keep_view and center:
+            fx, fy = center
+            vx, vy = self.canvas.xview(), self.canvas.yview()
+            self.canvas.xview_moveto(max(0.0, fx - (vx[1] - vx[0]) / 2))
+            self.canvas.yview_moveto(max(0.0, fy - (vy[1] - vy[0]) / 2))
+        else:
+            self.canvas.xview_moveto(0)
+            self.canvas.yview_moveto(0)
+
+    def _view_center(self):
+        x0, x1 = self.canvas.xview()
+        y0, y1 = self.canvas.yview()
+        return (x0 + x1) / 2, (y0 + y1) / 2
+
+    def _on_resize(self, _e):
+        if self.pil_images and abs(self._fit_width() - self._last_fit) >= 24:
+            self._render(keep_view=self.zoom_i > 0, center=self._view_center())
+
+    # --- horizontal scrollbar only when zoomed wider than the view ---
+    def _xset(self, first, last):
+        if float(first) <= 0.0 and float(last) >= 1.0:
+            self._hide_hbar()
+        elif not self.hbar.winfo_ismapped():
+            self.hbar.pack(side="bottom", fill="x", padx=4, before=self.canvas)
+        self.hbar.set(first, last)
+
+    def _hide_hbar(self):
+        if self.hbar.winfo_ismapped():
+            self.hbar.pack_forget()
+
+    def _open(self):
+        if self.path:
+            from src.ui.table import open_file
+            open_file(self.path)

@@ -426,8 +426,8 @@ class ReviewScreen(ctk.CTkFrame):
         threading.Thread(target=self._load_preview, args=(path,), daemon=True).start()
 
     def _load_preview(self, path):
-        images = PDFService.get_pdf_images(path)
-        self._post(lambda: self.preview.load_images(images) if self._path(self.current) == path else None)
+        images = PDFService.get_pdf_images(path, target_width=760)  # sharp enough to zoom in
+        self._post(lambda: self.preview.load_images(images, path) if self._path(self.current) == path else None)
 
     def _show_values(self):
         path = self._path(self.current)

@@ -127,6 +127,19 @@ try:
             errors.append("trackpad did not scroll the invoice list")
     except tkinter.TclError:
         print("trackpad event not supported by this Tk (8.6): trackpads send <MouseWheel> there")
+    # Preview zoom
+    rv._goto(0); pump(2.5)
+    pv = rv.preview
+    if not pv.pil_images:
+        errors.append("preview did not load")
+    else:
+        pv.set_zoom(3); pump(0.8)
+        region_w = float(str(pv.canvas.cget("scrollregion")).split()[2])
+        print("zoom:", pv.lbl_zoom.cget("text"), "| page area", int(region_w), "px vs view", pv.canvas.winfo_width())
+        if pv.lbl_zoom.cget("text") != "200%" or region_w <= pv.canvas.winfo_width():
+            errors.append("preview zoom did not enlarge the page")
+        shot("2d_review_zoom_200")
+        pv.set_zoom(0)
     teste = os.path.join(inv, "TESTE.pdf")
     if teste not in rv.duplicate_of:
         errors.append(f"copy TESTE.pdf not flagged as duplicate: {rv.duplicate_of}")

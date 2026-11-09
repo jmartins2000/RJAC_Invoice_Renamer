@@ -15,27 +15,43 @@ WHEEL_STEP_PX = 48  # pixels per mouse-wheel notch
 
 
 def _target(widget):
-    """Innermost CTkScrollableFrame canvas containing `widget` (None for ttk tables)."""
+    """Innermost scrollable canvas containing `widget` (None for ttk tables)."""
     w = widget
     while w is not None:
         if isinstance(w, ttk.Treeview):
             return None
+        if getattr(w, "_rjac_scrollable", False):  # e.g. the invoice preview
+            return w
         if isinstance(w, ctk.CTkScrollableFrame):
             return w._parent_canvas
         w = getattr(w, "master", None)
     return None
 
 
-def scroll_pixels(canvas, dy):
-    """Scroll content up by dy pixels (negative = down), clamped."""
-    first, last = canvas.yview()
-    if (first, last) == (0.0, 1.0):
-        return
-    bbox = canvas.bbox("all")
-    total = (bbox[3] - bbox[1]) if bbox else 0
-    if total <= 0:
-        return
-    canvas.yview_moveto(max(0.0, min(1.0 - (last - first), first + dy / total)))
+def _extent(canvas, axis):
+    region = canvas.cget("scrollregion")
+    if region:
+        x0, y0, x1, y1 = (float(v) for v in str(region).split())
+    else:
+        bbox = canvas.bbox("all")
+        if not bbox:
+            return 0
+        x0, y0, x1, y1 = bbox
+    return (x1 - x0) if axis == "x" else (y1 - y0)
+
+
+def scroll_pixels(canvas, dy, dx=0):
+    """Scroll content by dy (and dx) pixels; negative = down/right. Clamped."""
+    for axis, d in (("y", dy), ("x", dx)):
+        if not d:
+            continue
+        view = canvas.yview if axis == "y" else canvas.xview
+        moveto = canvas.yview_moveto if axis == "y" else canvas.xview_moveto
+        first, last = view()
+        total = _extent(canvas, axis)
+        if (first, last) == (0.0, 1.0) or total <= 0:
+            continue
+        moveto(max(0.0, min(1.0 - (last - first), first + d / total)))
 
 
 def _widget(root, event):
@@ -70,15 +86,18 @@ def install(root):
             notches = event.delta / 120
         else:  # Tk 8.6 on macOS: small integer deltas
             notches = event.delta
-        scroll_pixels(canvas, -notches * WHEEL_STEP_PX)
+        if event.state & 0x1:  # Shift: sideways
+            scroll_pixels(canvas, 0, -notches * WHEEL_STEP_PX)
+        else:
+            scroll_pixels(canvas, -notches * WHEEL_STEP_PX)
 
     def on_touchpad(event):
         canvas = _target(_widget(root, event))
         if canvas is None:
             return
-        _, dy = precise_deltas(event.delta)
-        if dy:
-            scroll_pixels(canvas, -dy)
+        dx, dy = precise_deltas(event.delta)
+        if dx or dy:
+            scroll_pixels(canvas, -dy, -dx)
 
     tkinter.Misc.bind_all(root, "<MouseWheel>", on_wheel, add="+")
     if not sys.platform.startswith(("win", "darwin")):
