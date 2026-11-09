@@ -78,7 +78,7 @@ def resolve_fonts(root):
 def primary_button(parent, text, command=None, width=None, height=44, size=14, **kw):
     return ctk.CTkButton(parent, text=text, command=command, height=height, width=width or 0,
                          corner_radius=10, fg_color=EVERGREEN, hover_color=EVERGREEN_HOVER,
-                         text_color=ON_PRIMARY, text_color_disabled=("#C9D6CB", "#6E8A73"),
+                         text_color=ON_PRIMARY, text_color_disabled=("#C9D6CB", "#CFE3D2"),
                          font=font(size, "bold"), **kw)
 
 
