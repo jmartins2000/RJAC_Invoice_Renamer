@@ -196,6 +196,14 @@ try:
     app.show_folder(inv); pump(1)
     fb = FeedbackDialog(app, None, folder=inv, screen_name="FolderScreen")
     pump(1); shot("5b_feedback")
+    if sys.platform == "darwin":
+        from src.ui.feedback_dialog import _mac_render_own_window
+        own = _mac_render_own_window(app)
+        print("mac own-window render:", own.size if own else None)
+        if own is None:
+            errors.append("macOS own-window render failed (would need Screen Recording permission)")
+        else:
+            own.save(os.path.join(OUT, "5a_own_window_render.png"))
     fb._take(); pump(2)
     from src.ui.feedback_dialog import SnipOverlay
     ov = next((w for w in app.winfo_children() if isinstance(w, SnipOverlay)), None)

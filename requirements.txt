@@ -9,6 +9,7 @@ python-dotenv
 requests
 openpyxl
 pillow
+pyobjc-framework-Cocoa; sys_platform == "darwin"  # feedback screenshots without screen-recording permission
 
 # Build (packaging the app)
 pyinstaller>=6.10

@@ -41,12 +41,41 @@ def open_screen_settings():
     subprocess.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"])
 
 
+def _mac_render_own_window(win):
+    """macOS: ask our own window to draw itself into an image. In-process, so no Screen Recording
+    permission is needed (unlike a screenshot of the screen)."""
+    import io
+    from AppKit import NSApp, NSBitmapImageFileTypePNG
+    title = win.title()
+    windows = [w for w in NSApp.windows() if w.isVisible()]
+    target = next((w for w in windows if w.title() == title), None) or NSApp.mainWindow() or \
+        (windows[0] if windows else None)
+    if target is None:
+        return None
+    view = target.contentView()
+    rect = view.bounds()
+    rep = view.bitmapImageRepForCachingDisplayInRect_(rect)
+    view.cacheDisplayInRect_toBitmapImageRep_(rect, rep)
+    data = rep.representationUsingType_properties_(NSBitmapImageFileTypePNG, None)
+    img = Image.open(io.BytesIO(bytes(data))).convert("RGB")
+    return img if img.getbbox() and len(set(img.resize((32, 32)).getdata())) > 3 else None  # not blank
+
+
 def capture_window(win):
-    """Screenshot of the app window (before the feedback window opens)."""
+    """Picture of the app window (taken after the feedback window is hidden)."""
     win.update_idletasks()
+    if sys.platform == "darwin":
+        try:
+            img = _mac_render_own_window(win)
+            if img is not None:
+                return img
+        except Exception as e:
+            print(f"Own-window render failed, falling back to screen capture: {e}")
+        if not mac_screen_permission():
+            return None
     x, y, w, h = win.winfo_rootx(), win.winfo_rooty(), win.winfo_width(), win.winfo_height()
     try:
-        if sys.platform == "darwin":  # macOS: region in points, needs Screen Recording permission once
+        if sys.platform == "darwin":  # fallback: region in points, needs Screen Recording permission
             path = os.path.join(tempfile.mkdtemp(prefix="rjac-shot-"), "shot.png")
             subprocess.run(["screencapture", "-x", "-R", f"{x},{y},{w},{h}", path], check=True, timeout=10)
             return Image.open(path).convert("RGB")
@@ -215,10 +244,6 @@ class FeedbackDialog(ctk.CTkToplevel):
     # --- screenshot ---
     def _take(self):
         app = self.master
-        if not mac_screen_permission():
-            mac_screen_permission(request=True)
-            self._permission_help()
-            return
         try:
             self.grab_release()
         except tk.TclError:
@@ -231,6 +256,8 @@ class FeedbackDialog(ctk.CTkToplevel):
         shot = capture_window(app)
         if shot is None:
             self._snipped(None, failed=True)
+            if sys.platform == "darwin":
+                self._permission_help()
             return
         SnipOverlay(app, shot, self._snipped)
 
