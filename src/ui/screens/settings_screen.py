@@ -70,7 +70,7 @@ class SettingsScreen(ctk.CTkFrame):
             menu_box, values=["Loading models…"], command=self._model_chosen, height=42, corner_radius=8,
             fg_color=t.SNOW, button_color=t.SNOWFIELD, button_hover_color=t.FROST, text_color=t.INK,
             dropdown_fg_color=t.SNOW, dropdown_hover_color=t.SELECTED, dropdown_text_color=t.INK,
-            font=t.font(14), dropdown_font=t.font(13), dynamic_resizing=False, width=636, height=40,
+            font=t.font(14), dropdown_font=t.font(13), dynamic_resizing=False, width=636,
             state="disabled")
         self.model_menu.pack(fill="x", padx=2, pady=2)
         self.lbl_model = t.label(msec, "", size=13, color=t.LICHEN, wraplength=640)
