@@ -3,21 +3,36 @@ import sys
 
 import customtkinter as ctk
 
-SNOW = "#FFFFFF"        # background
-SNOWFIELD = "#F4F6F4"   # panels
-SELECTED = "#EAF1EB"    # selected row / soft green fill
-FROST = "#E3E8E4"       # lines and borders
-FIELD_BORDER = "#CBD3CD"
-INK = "#14231A"         # text
-LICHEN = "#5E6B62"      # muted text
-PLACEHOLDER = "#9AA59E"
-EVERGREEN = "#204E27"   # primary
-EVERGREEN_HOVER = "#2B6334"
-NEEDLE = "#3D9D46"      # success / progress
-AMBER = "#B45309"       # warning
-AMBER_BG = "#FDF3E7"
-RED = "#B42318"         # error
-RED_BG = "#FDECEA"
+# Each colour is (light, dark). CTk widgets accept the pair directly; for plain Tk/PIL use c().
+SNOW = ("#FFFFFF", "#111613")          # background
+SNOWFIELD = ("#F4F6F4", "#1A211C")     # panels
+SELECTED = ("#EAF1EB", "#1F3324")      # selected row / soft green fill
+FROST = ("#E3E8E4", "#2A332D")         # lines and borders
+FIELD_BORDER = ("#CBD3CD", "#3A453E")
+ROW_ALT = ("#FAFBFA", "#151B17")
+INK = ("#14231A", "#E8EEE9")           # text
+LICHEN = ("#5E6B62", "#9AA8A0")        # muted text
+PLACEHOLDER = ("#9AA59E", "#6B776F")
+EVERGREEN = ("#204E27", "#3F9A4C")     # primary (fills, links, focus)
+EVERGREEN_HOVER = ("#2B6334", "#4AAA57")
+ON_PRIMARY = ("#FFFFFF", "#FFFFFF")    # text on primary fills
+NEEDLE = ("#3D9D46", "#58B864")        # success / progress
+AMBER = ("#B45309", "#F0A35A")         # warning
+AMBER_BG = ("#FDF3E7", "#2E2416")
+RED = ("#B42318", "#F2786D")           # error
+RED_BG = ("#FDECEA", "#3A1D1B")
+
+
+def dark():
+    return ctk.get_appearance_mode() == "Dark"
+
+
+def c(color):
+    """Resolve a (light, dark) pair for plain Tk / Pillow."""
+    if isinstance(color, (tuple, list)):
+        return color[1] if dark() else color[0]
+    return color
+
 
 # Native pointing-hand cursor ("hand2" is an old-style hand on macOS)
 HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
@@ -63,7 +78,8 @@ def resolve_fonts(root):
 def primary_button(parent, text, command=None, width=None, height=44, size=14, **kw):
     return ctk.CTkButton(parent, text=text, command=command, height=height, width=width or 0,
                          corner_radius=10, fg_color=EVERGREEN, hover_color=EVERGREEN_HOVER,
-                         text_color=SNOW, text_color_disabled="#C9D6CB", font=font(size, "bold"), **kw)
+                         text_color=ON_PRIMARY, text_color_disabled=("#C9D6CB", "#6E8A73"),
+                         font=font(size, "bold"), **kw)
 
 
 def secondary_button(parent, text, command=None, width=None, height=38, size=13, **kw):
@@ -108,7 +124,7 @@ class Toggle(ctk.CTkCanvas):
     """Pill switch drawn on a canvas (CTkSwitch clips on macOS)."""
 
     def __init__(self, parent, variable, command=None, width=40, height=24):
-        super().__init__(parent, width=width, height=height, highlightthickness=0, bd=0, bg=SNOW,
+        super().__init__(parent, width=width, height=height, highlightthickness=0, bd=0, bg=c(SNOW),
                          cursor=HAND)
         self.var, self.command, self.w, self.h = variable, command, width, height
         self.bind("<Button-1>", self._click)
@@ -123,11 +139,11 @@ class Toggle(ctk.CTkCanvas):
     def _draw(self):
         self.delete("all")
         w, h, on = self.w, self.h, bool(self.var.get())
-        c = EVERGREEN if on else FIELD_BORDER
+        col = c(EVERGREEN if on else FIELD_BORDER)
         r = h / 2
-        self.create_oval(0, 0, h, h, fill=c, outline=c)
-        self.create_oval(w - h, 0, w, h, fill=c, outline=c)
-        self.create_rectangle(r, 0, w - r, h, fill=c, outline=c)
+        self.create_oval(0, 0, h, h, fill=col, outline=col)
+        self.create_oval(w - h, 0, w, h, fill=col, outline=col)
+        self.create_rectangle(r, 0, w - r, h, fill=col, outline=col)
         k = 3
         x = w - h + k if on else k
-        self.create_oval(x, k, x + h - 2 * k, h - k, fill=SNOW, outline=SNOW)
+        self.create_oval(x, k, x + h - 2 * k, h - k, fill="#FFFFFF", outline="#FFFFFF")

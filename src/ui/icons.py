@@ -55,8 +55,14 @@ def status(kind, size=18):
     return _done(img, size)
 
 
+def line_icon(name, size=16, color=None, stroke=2.0):
+    """Line icon; color defaults to the text colour of the current light/dark mode."""
+    from src.ui import theme
+    return _line_icon(name, size, theme.c(color or theme.INK), stroke)
+
+
 @lru_cache(maxsize=None)
-def line_icon(name, size=16, color="#14231A", stroke=2.0):
+def _line_icon(name, size, color, stroke):
     img = _canvas(size)
     d = ImageDraw.Draw(img)
     w = _w(size, stroke)
@@ -102,17 +108,22 @@ def big_check(size=56):
     return _done(img, size)
 
 
-@lru_cache(maxsize=None)
 def tile(icon_name, filled, size=44):
     """Rounded square tile with an icon, used for the folder cards."""
+    from src.ui import theme
+    return _tile(icon_name, filled, size, theme.c(theme.EVERGREEN), theme.c(theme.SNOWFIELD))
+
+
+@lru_cache(maxsize=None)
+def _tile(icon_name, filled, size, green, panel):
     img = _canvas(size)
     d = ImageDraw.Draw(img)
     n = size * S
-    d.rounded_rectangle((0, 0, n - 1, n - 1), radius=10 * S, fill="#204E27" if filled else "#F4F6F4")
+    d.rounded_rectangle((0, 0, n - 1, n - 1), radius=10 * S, fill=green if filled else panel)
     inner = 22
     ic = _canvas(inner)
     di = ImageDraw.Draw(ic)
-    col = "#FFFFFF" if filled else "#204E27"
+    col = "#FFFFFF" if filled else green
     w = _w(inner, 1.8)
     for p in [[(3, 7), (3, 18), (21, 18), (21, 9), (11.5, 9), (9.5, 6), (3, 6), (3, 7)]]:
         di.line(_pts(p, inner), fill=col, width=w, joint="curve")

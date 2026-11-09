@@ -35,7 +35,29 @@ def _db():
             );
             CREATE INDEX IF NOT EXISTS idx_folder ON invoices(folder);
             CREATE INDEX IF NOT EXISTS idx_date ON invoices(invoice_date);
+            CREATE TABLE IF NOT EXISTS projects (
+                path TEXT PRIMARY KEY,         -- the folder the invoices come from
+                dest_folder TEXT,              -- where renamed files go (NULL = same folder)
+                created_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project TEXT,
+                started_at TEXT,
+                finished_at TEXT,
+                files INTEGER DEFAULT 0,       -- PDFs in the folder at the time
+                gemini_reads INTEGER DEFAULT 0,
+                cost_usd REAL DEFAULT 0,
+                renamed INTEGER DEFAULT 0
+            );
         """)
+        cols = {r[1] for r in _conn.execute("PRAGMA table_info(invoices)")}
+        if "project" not in cols:  # older history: the folder it was read in is its project
+            _conn.execute("ALTER TABLE invoices ADD COLUMN project TEXT")
+            _conn.execute("UPDATE invoices SET project = folder")
+        if "run_id" not in cols:
+            _conn.execute("ALTER TABLE invoices ADD COLUMN run_id INTEGER")
+        _conn.commit()
     return _conn
 
 
@@ -63,25 +85,29 @@ def _row(row):
     return d
 
 
-def save(file_hash, values, status, path, model=None, original_name=None):
-    """Insert or update. Never downgrades status (renamed > confirmed > read)."""
+def save(file_hash, values, status, path, model=None, original_name=None, project=None, run_id=None):
+    """Insert or update. Never downgrades status (renamed > confirmed > read).
+    The project (source folder) and first run are kept from the first time it was seen."""
     rank = {"read": 0, "confirmed": 1, "renamed": 2}
     clean = {k: v for k, v in values.items() if k not in ("error",)}
     with _lock:
         db = _db()
-        old = db.execute("SELECT status, original_name, processed_at, model FROM invoices WHERE hash=?",
-                         (file_hash,)).fetchone()
+        old = db.execute("SELECT status, original_name, processed_at, model, project, run_id FROM invoices "
+                         "WHERE hash=?", (file_hash,)).fetchone()
         if old and rank.get(old["status"], 0) > rank.get(status, 0):
             status = old["status"]
         db.execute("""INSERT OR REPLACE INTO invoices
-            (hash, values_json, status, original_name, file_name, folder, invoice_date, model, processed_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?)""", (
+            (hash, values_json, status, original_name, file_name, folder, invoice_date, model, processed_at, updated_at,
+             project, run_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (
             file_hash, json.dumps(clean, ensure_ascii=False), status,
             (old["original_name"] if old and old["original_name"] else original_name or os.path.basename(path)),
             os.path.basename(path), os.path.dirname(os.path.abspath(path)),
             str(clean.get("date") or "")[:10],
             model or (old["model"] if old else None),
-            old["processed_at"] if old else _now(), _now()))
+            old["processed_at"] if old else _now(), _now(),
+            (old["project"] if old and old["project"] else project or os.path.dirname(os.path.abspath(path))),
+            old["run_id"] if old and old["run_id"] else run_id))
         db.commit()
 
 
@@ -100,7 +126,7 @@ def query(start=None, end=None, folder=None):
     if end:
         sql += " AND invoice_date <= ? AND invoice_date != ''"; args.append(end)
     if folder:
-        sql += " AND folder = ?"; args.append(folder)
+        sql += " AND project = ?"; args.append(folder)
     sql += " ORDER BY invoice_date, file_name"
     with _lock:
         rows = [_row(r) for r in _db().execute(sql, args).fetchall()]
@@ -109,9 +135,111 @@ def query(start=None, end=None, folder=None):
 
 
 def folders():
+    """Project folders, most recently used first."""
+    return [p["path"] for p in projects()]
+
+
+# ------------------------------------------------------------------ projects & runs
+def add_project(path):
+    path = os.path.abspath(path)
     with _lock:
-        return [r[0] for r in _db().execute(
-            "SELECT folder, COUNT(*) c FROM invoices GROUP BY folder ORDER BY MAX(updated_at) DESC").fetchall()]
+        _db().execute("INSERT OR IGNORE INTO projects (path, created_at) VALUES (?, ?)", (path, _now()))
+        _db().commit()
+    return path
+
+
+def remove_project(path):
+    """Forget a folder (its invoices stay in the history, so nothing is re-read)."""
+    with _lock:
+        _db().execute("DELETE FROM projects WHERE path=?", (path,))
+        _db().commit()
+
+
+def projects():
+    """All project folders with stats, most recently used first."""
+    with _lock:
+        db = _db()
+        db.execute("INSERT OR IGNORE INTO projects (path, created_at) SELECT DISTINCT project, MIN(processed_at) "
+                   "FROM invoices WHERE project IS NOT NULL GROUP BY project")
+        db.commit()
+        rows = db.execute("""
+            SELECT p.path, p.dest_folder, p.created_at,
+                   (SELECT COUNT(*) FROM runs r WHERE r.project = p.path) AS runs,
+                   (SELECT MAX(started_at) FROM runs r WHERE r.project = p.path) AS last_run,
+                   COALESCE((SELECT MAX(updated_at) FROM invoices i WHERE i.project = p.path), p.created_at) AS used
+            FROM projects p ORDER BY used DESC""").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        inv = query(folder=d["path"])
+        d["invoices"] = len(inv)
+        d["total"] = sum(i["values"].get("total_value") or 0 for i in inv
+                         if isinstance(i["values"].get("total_value"), (int, float)))
+        d["to_check"] = sum(1 for i in inv if i["status"] == "read")
+        out.append(d)
+    return out
+
+
+def project(path):
+    return next((p for p in projects() if p["path"] == os.path.abspath(path)), None)
+
+
+def set_destination(path, dest):
+    with _lock:
+        _db().execute("UPDATE projects SET dest_folder=? WHERE path=?",
+                      (None if not dest or os.path.abspath(dest) == os.path.abspath(path) else dest, path))
+        _db().commit()
+
+
+def new_pdfs(path):
+    """PDF files in the folder that have never been read (checked by name, then by contents)."""
+    try:
+        names = [f for f in os.listdir(path) if f.lower().endswith(".pdf") and not f.startswith(".")]
+    except OSError:
+        return []
+    with _lock:
+        known = {r[0] for r in _db().execute("SELECT file_name FROM invoices WHERE folder=?",
+                                             (os.path.abspath(path),)).fetchall()}
+    out = []
+    for n in names:
+        if n in known:
+            continue
+        try:
+            if get(fingerprint(os.path.join(path, n))) is None:
+                out.append(n)
+        except OSError:
+            pass
+    return out
+
+
+def start_run(path, files):
+    with _lock:
+        cur = _db().execute("INSERT INTO runs (project, started_at, files) VALUES (?,?,?)",
+                            (os.path.abspath(path), _now(), files))
+        _db().commit()
+        return cur.lastrowid
+
+
+def finish_run(run_id, gemini_reads=0, cost_usd=0.0, renamed=0):
+    """Record what a run did; runs that did nothing are dropped."""
+    with _lock:
+        db = _db()
+        row = db.execute("SELECT gemini_reads, cost_usd, renamed FROM runs WHERE id=?", (run_id,)).fetchone()
+        if not row:
+            return
+        g, c, rn = row[0] + gemini_reads, row[1] + cost_usd, row[2] + renamed
+        if g == 0 and rn == 0:
+            db.execute("DELETE FROM runs WHERE id=?", (run_id,))
+        else:
+            db.execute("UPDATE runs SET finished_at=?, gemini_reads=?, cost_usd=?, renamed=? WHERE id=?",
+                       (_now(), g, c, rn, run_id))
+        db.commit()
+
+
+def runs(path):
+    with _lock:
+        return [dict(r) for r in _db().execute(
+            "SELECT * FROM runs WHERE project=? ORDER BY started_at DESC", (os.path.abspath(path),)).fetchall()]
 
 
 def years():

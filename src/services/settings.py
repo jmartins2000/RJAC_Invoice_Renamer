@@ -12,7 +12,9 @@ DEFAULTS = {
     "fields": None,             # list of field definitions (see services/fields.py); None = defaults
     "separator": " ~ ",
     "filename_original": False,  # append the original filename
+    "excel_columns": {"original_name": True, "file_name": True, "folder": False},  # file info in the Excel
     "delete_original": True,
+    "appearance": "system",      # system | light | dark
     "last_source": None,
     "model": None,  # None = the catalog's default
     "usage": {},  # "YYYY-MM": {"invoices": int, "cost_usd": float}

@@ -91,10 +91,12 @@ def shot(name):
 
 
 try:
-    app.show_setup(); shot("1_setup")
-    app.show_review(inv, inv); rv = app.screen
-    t = time.time()
-    while rv.in_flight and time.time() - t < 30:
+    from src.services import history as hist
+    app.show_home(); shot("0_home")
+    app.show_folder(inv); pump(2); shot("1_folder_before")
+    app.show_review(inv); rv = app.screen
+    t0 = time.time()
+    while rv.in_flight and time.time() - t0 < 30:
         pump(0.2)
     shot("2_review")
     # Scrolling: the invoice list must move with the mouse wheel and (Tk 9) the trackpad
@@ -122,13 +124,34 @@ try:
             w.destroy()
     todo, done, skipped = rv._renamable()
     rv._do_rename(todo, done, skipped, inv, True); shot("4_done")
-    app.show_history(); shot("5_history")
-    app.show_fields(); shot("6_fields")
+    print("files after rename:", sorted(os.listdir(inv))[:4], "...")
+    app.screen.btn_export  # Done screen has an export button
+    app.show_folder(inv); pump(2); shot("5_folder_after")
+    runs = hist.runs(inv)
+    print("runs recorded:", [(r["gemini_reads"], r["renamed"]) for r in runs])
+    if not runs or runs[0]["renamed"] == 0:
+        errors.append(f"run not recorded: {runs}")
+    from src.services.excel_exporter import ExcelExporter
+    from src.services import fields as fm
+    import openpyxl
+    xl = os.path.join(work, "out.xlsx")
+    ExcelExporter.export(hist.query(folder=inv), [f for f in fm.load() if f.enabled and f.in_excel], xl)
+    header = [c.value for c in openpyxl.load_workbook(xl).active[1]]
+    print("excel columns:", header)
+    if "Original name" not in header:
+        errors.append("Original name missing from Excel")
+    app.show_all(); shot("6_all_invoices")
+    app.show_fields(); shot("7_fields")
     app.screen.e_sep.delete(0, "end"); app.screen.e_sep.insert(0, " / "); app.screen._sep_changed()
-    shot("6b_fields_bad_separator")
+    shot("7b_fields_bad_separator")
     app.screen._reset_sep()
-    app.show_settings(); shot("7_settings")
-    print("files after rename:", sorted(os.listdir(inv)))
+    app.show_settings(); shot("8_settings")
+    # Night mode
+    app.set_appearance("dark"); pump(1); shot("9_dark_settings")
+    app.show_home(); shot("9_dark_home")
+    app.show_folder(inv); pump(2); shot("9_dark_folder")
+    app.show_review(inv); pump(3); shot("9_dark_review")
+    app.set_appearance("system")
 except Exception as e:
     errors.append(e)
 app.destroy()

@@ -6,7 +6,7 @@ import customtkinter as ctk
 from src.services import fields as fieldmod
 from src.services import settings
 from src.ui import icons, theme as t
-from src.ui.screens.setup import EXAMPLE, EXAMPLE_ORIGINAL
+from src.ui.util import EXAMPLE, EXAMPLE_ORIGINAL
 
 TYPE_LABELS = {"text": "Text", "number": "Number", "date": "Date"}
 
@@ -101,6 +101,9 @@ class FieldsScreen(ctk.CTkFrame):
     def __init__(self, master, on_back):
         super().__init__(master, fg_color=t.SNOW, corner_radius=0)
         self.fields = fieldmod.load()
+        prefs = settings.load()
+        self.excel_cols = dict(prefs.get("excel_columns") or {})
+        self.include_original = bool(prefs.get("filename_original"))
 
         bar = ctk.CTkFrame(self, fg_color=t.SNOW, corner_radius=0, height=62)
         bar.pack(fill="x")
@@ -114,7 +117,7 @@ class FieldsScreen(ctk.CTkFrame):
         wrap = ctk.CTkFrame(self, fg_color="transparent", width=800)
         wrap.pack(fill="both", expand=True, pady=(28, 0))
         # --- Separator ---
-        sep = ctk.CTkFrame(wrap, fg_color=t.SNOWFIELD, corner_radius=12, width=800, height=120)
+        sep = ctk.CTkFrame(wrap, fg_color=t.SNOWFIELD, corner_radius=12, width=800, height=156)
         sep.pack_propagate(False)
         sep.pack()
         row = ctk.CTkFrame(sep, fg_color="transparent")
@@ -133,7 +136,16 @@ class FieldsScreen(ctk.CTkFrame):
         self.e_sep.bind("<KeyRelease>", lambda _: self._sep_changed(), add="+")
         self.lbl_sep_ex = ctk.CTkLabel(sep, text="", font=t.mono(13), text_color=t.EVERGREEN, anchor="w",
                                        justify="left", wraplength=740)
-        self.lbl_sep_ex.pack(anchor="w", fill="x", padx=20, pady=(6, 14))
+        self.lbl_sep_ex.pack(anchor="w", fill="x", padx=20, pady=(6, 6))
+        extra = ctk.CTkFrame(sep, fg_color="transparent")
+        extra.pack(anchor="w", padx=20, pady=(0, 14))
+        checkbox(extra, "Add the original filename at the end", self.include_original,
+                 self._set_original).pack(side="left", padx=(0, 28))
+        t.label(extra, "Also in the Excel:", size=13, color=t.LICHEN).pack(side="left", padx=(0, 10))
+        from src.services.excel_exporter import FILE_COLUMNS
+        for key, label in FILE_COLUMNS:
+            checkbox(extra, label, self.excel_cols.get(key, False),
+                     lambda v, k=key: self._set_excel_col(k, v)).pack(side="left", padx=(0, 14))
         self._sep_changed()
 
         head = ctk.CTkFrame(wrap, fg_color="transparent", width=800)
@@ -164,9 +176,20 @@ class FieldsScreen(ctk.CTkFrame):
         example = dict(EXAMPLE)
         for f in self.fields:
             example.setdefault(f.key, f.label)
-        keys = fieldmod.filename_keys(self.fields, settings.load().get("filename_original"))
+        keys = fieldmod.filename_keys(self.fields, self.include_original)
         name = fieldmod.build_filename(example, EXAMPLE_ORIGINAL, self.fields, keys, sep)
         self.lbl_sep_ex.configure(text=f"Example:  {name}", text_color=t.EVERGREEN)
+
+    def _set_original(self, value):
+        self.include_original = value
+        if not fieldmod.filename_keys(self.fields, value):
+            self.include_original = True
+        settings.save(filename_original=self.include_original)
+        self._sep_changed()
+
+    def _set_excel_col(self, key, value):
+        self.excel_cols[key] = value
+        settings.save(excel_columns=self.excel_cols)
 
     def _reset_sep(self):
         self.e_sep.delete(0, "end")
@@ -219,7 +242,7 @@ class FieldsScreen(ctk.CTkFrame):
         setattr(f, attr, value)
         if attr == "enabled" and not value:
             f.in_filename = False
-        if attr == "in_filename" and not fieldmod.filename_keys(self.fields, True):
+        if attr == "in_filename" and not fieldmod.filename_keys(self.fields, self.include_original):
             f.in_filename = True
         self._save()
         self._render()

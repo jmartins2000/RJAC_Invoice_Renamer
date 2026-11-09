@@ -5,10 +5,21 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
 
+FILE_COLUMNS = [("original_name", "Original name"), ("file_name", "File name"), ("folder", "Folder")]
+
+
+def chosen_file_columns():
+    from src.services import settings
+    on = settings.load().get("excel_columns") or {}
+    return [(label, key) for key, label in FILE_COLUMNS if on.get(key)]
+
+
 class ExcelExporter:
     @staticmethod
-    def export(rows, field_defs, output_path, extra_columns=(("File", "file_name"), ("Folder", "folder"))):
-        """rows: dicts with 'values' (field key → value) plus the extra column keys."""
+    def export(rows, field_defs, output_path, extra_columns=None):
+        """rows: dicts with 'values' (field key → value) plus original_name / file_name / folder."""
+        if extra_columns is None:
+            extra_columns = chosen_file_columns()
         try:
             cols = [f for f in field_defs if f.enabled and f.in_excel]
             wb = Workbook()

@@ -19,8 +19,14 @@ def open_folder(path):
 
 class DoneScreen(ctk.CTkFrame):
     def __init__(self, master, renamed, skipped, corrected, failed, cost_eur, dest_folder,
-                 on_export, on_restart):
+                 on_export, on_back, folder_name=""):
         super().__init__(master, fg_color=t.SNOW, corner_radius=0)
+        bar = ctk.CTkFrame(self, fg_color=t.SNOW, corner_radius=0, height=62)
+        bar.pack(fill="x")
+        ctk.CTkButton(bar, text=f"  Back to {folder_name}" if folder_name else "  Back",
+                      image=icons.line_icon("arrow_left"), compound="left", height=34, width=0, corner_radius=8,
+                      fg_color=t.SNOW, hover_color=t.SNOWFIELD, border_width=1, border_color=t.FROST,
+                      text_color=t.INK, font=t.font(13), command=on_back).pack(side="left", padx=24, pady=14)
         col = ctk.CTkFrame(self, fg_color="transparent")
         col.place(relx=0.5, rely=0.47, anchor="center")
 
@@ -41,7 +47,6 @@ class DoneScreen(ctk.CTkFrame):
         self.btn_export = t.secondary_button(btns, "Export to Excel", height=44, size=14,
                                              command=lambda: on_export(self.btn_export), width=150)
         self.btn_export.pack(side="left", padx=10)
-        t.link_button(btns, "Rename another folder", command=on_restart, size=14).pack(side="left", padx=6)
 
         t.divider(col).pack(fill="x", pady=(28, 22))
         stats = ctk.CTkFrame(col, fg_color="transparent")

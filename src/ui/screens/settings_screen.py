@@ -17,7 +17,7 @@ def masked(key):
 
 
 class SettingsScreen(ctk.CTkFrame):
-    def __init__(self, master, on_back, on_update_found, on_fields, eur_rate=0.92):
+    def __init__(self, master, on_back, on_update_found, on_fields, on_appearance, eur_rate=0.92):
         super().__init__(master, fg_color=t.SNOW, corner_radius=0)
         self.on_update_found = on_update_found
         self.eur_rate = eur_rate
@@ -86,6 +86,18 @@ class SettingsScreen(ctk.CTkFrame):
         sec = self._section(col, "Fields & filename", f"Reading: {', '.join(on)} · separator \"{sep}\"")
         sec.sub.configure(wraplength=480)
         t.secondary_button(sec, "Edit fields", command=on_fields, width=110).pack(side="right")
+        t.divider(col).pack(fill="x")
+
+        # --- Appearance ---
+        sec = self._section(col, "Appearance", "Day or night colours")
+        modes = {"system": "Follow system", "light": "Day", "dark": "Night"}
+        seg = ctk.CTkSegmentedButton(
+            sec, values=list(modes.values()), height=34, font=t.font(13), fg_color=t.SNOWFIELD,
+            selected_color=t.EVERGREEN, selected_hover_color=t.EVERGREEN_HOVER, unselected_color=t.SNOWFIELD,
+            unselected_hover_color=t.FROST, text_color=t.INK, corner_radius=8,
+            command=lambda label: on_appearance(next(k for k, v in modes.items() if v == label)))
+        seg.set(modes.get(settings.load().get("appearance", "system"), "Follow system"))
+        seg.pack(side="right")
         t.divider(col).pack(fill="x")
 
         # --- Updates ---

@@ -114,7 +114,7 @@ class RenameDialog(ctk.CTkToplevel):
             pass
 
     def _show_dest(self):
-        from src.ui.screens.setup import shorten
+        from src.ui.util import shorten
         self.lbl_dest.configure(text=shorten(self.dest, 46))
 
     def _change(self):
@@ -159,6 +159,9 @@ class ReviewScreen(ctk.CTkFrame):
         self.in_flight = set()
         self.edited = set()
         self.gemini_reads = 0
+        self.renamed_count = 0
+        history.add_project(source_folder)
+        self.run_id = history.start_run(source_folder, len(self.files))
 
         self._build()
         self.after(POLL_MS, self._drain)
@@ -350,7 +353,8 @@ class ReviewScreen(ctk.CTkFrame):
             self.status[path] = status or "read"
             if h:
                 history.save(h, data, self.status[path], path,
-                             model=self.gemini.model if source == "gemini" else None)
+                             model=self.gemini.model if source == "gemini" else None,
+                             project=self.source_folder, run_id=self.run_id)
         self._refresh_status()
         if self.files and self._path(self.current) == path:
             self._show_values()
@@ -483,7 +487,7 @@ class ReviewScreen(ctk.CTkFrame):
             self.status[path] = "confirmed"
         h = self.hashes.get(path)
         if h:
-            history.save(h, merged, self.status[path], path)
+            history.save(h, merged, self.status[path], path, project=self.source_folder, run_id=self.run_id)
 
     def _goto(self, i):
         self._save_current()
@@ -530,13 +534,19 @@ class ReviewScreen(ctk.CTkFrame):
         return todo, done, skipped
 
     # --------------------------------------------------------------- actions
+    def _original_name(self, path):
+        h = self.hashes.get(path)
+        known = history.get(h) if h else None
+        return (known or {}).get("original_name") or os.path.basename(path)
+
     def _rows(self):
         rows = []
         for f in self.files:
             path = os.path.join(self.source_folder, f)
             v = self._usable(path)
             if v:
-                rows.append({"values": v, "file_name": f, "folder": self.source_folder})
+                rows.append({"values": v, "file_name": f, "folder": self.source_folder,
+                             "original_name": self._original_name(path)})
         return rows
 
     def export_excel(self):
@@ -555,6 +565,7 @@ class ReviewScreen(ctk.CTkFrame):
         for f in self.files:
             path = os.path.join(self.source_folder, f)
             v = self._usable(path)
+            original = self._original_name(path)
             new_name = f
             if f in todo:
                 name = self._filename_for(self.values[path], f)
@@ -564,13 +575,15 @@ class ReviewScreen(ctk.CTkFrame):
                     new_name = os.path.basename(new_path)
                     h = self.hashes.get(path)
                     if h:
-                        history.save(h, self.values[path], "confirmed", path)
+                        history.save(h, self.values[path], "confirmed", path, project=self.source_folder,
+                                     run_id=self.run_id)
                         history.moved(h, new_path)
                 else:
                     failed.append(f)
             if v:
-                rows.append({"values": v, "file_name": new_name,
+                rows.append({"values": v, "file_name": new_name, "original_name": original,
                              "folder": dest if f in todo and f not in failed else self.source_folder})
+        self.renamed_count += renamed
         if failed:
             messagebox.showwarning("Some files were not renamed",
                                    "These files could not be renamed:\n\n" + "\n".join(failed[:15]))
@@ -581,6 +594,9 @@ class ReviewScreen(ctk.CTkFrame):
                      export=lambda button: export_rows(rows, fields_, dest, button))
 
     def destroy(self):
+        if not self._closed:
+            history.finish_run(self.run_id, gemini_reads=self.gemini_reads,
+                               cost_usd=self.gemini.get_total_cost_usd(), renamed=self.renamed_count)
         self._closed = True
         try:
             self.winfo_toplevel().unbind("<Return>", self._enter_bind)
