@@ -39,9 +39,80 @@ def capture_window(win):
 
 def open_feedback(widget):
     app = widget.winfo_toplevel()
-    shot = capture_window(app)
-    FeedbackDialog(app, shot, folder=getattr(app, "context_folder", None),
+    FeedbackDialog(app, None, folder=getattr(app, "context_folder", None),
                    screen_name=type(getattr(app, "screen", None)).__name__)
+
+
+class SnipOverlay(tk.Toplevel):
+    """Covers the app window with a faded screenshot; drag to select the part to send."""
+
+    def __init__(self, app, shot, on_done):
+        super().__init__(app)
+        self.on_done, self.shot = on_done, shot
+        x, y, w, h = app.winfo_rootx(), app.winfo_rooty(), app.winfo_width(), app.winfo_height()
+        self.overrideredirect(True)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.attributes("-topmost", True)
+        self.w, self.h = w, h
+        self.sx, self.sy = shot.width / w, shot.height / h  # screenshot pixels per window point
+        self.bright = shot.resize((w, h), Image.Resampling.LANCZOS)
+        faded = Image.blend(self.bright, Image.new("RGB", (w, h), (20, 30, 24)), 0.55)
+        self._faded = ImageTk.PhotoImage(faded)
+        self.canvas = tk.Canvas(self, width=w, height=h, highlightthickness=0, bd=0, cursor="crosshair")
+        self.canvas.pack(fill="both", expand=True)
+        self.canvas.create_image(0, 0, image=self._faded, anchor="nw")
+        self._hint = self.canvas.create_text(
+            w / 2, 28, fill="#FFFFFF", font=(t.SANS, 14, "bold"),
+            text="Drag to select the part to send   ·   Enter: whole page   ·   Esc: cancel")
+        self._sel = self._border = None
+        self._bright_photo = None
+        self.canvas.bind("<ButtonPress-1>", self._press)
+        self.canvas.bind("<B1-Motion>", self._move)
+        self.canvas.bind("<ButtonRelease-1>", self._release)
+        self.bind("<Escape>", lambda e: self._finish(None))
+        self.bind("<Return>", lambda e: self._finish(self.shot))
+        self.after(50, self._focus)
+
+    def _focus(self):
+        try:
+            self.focus_force()
+            self.grab_set()
+        except tk.TclError:
+            pass
+
+    def _press(self, e):
+        self.start = (e.x, e.y)
+
+    def _move(self, e):
+        x0, y0 = self.start
+        l, tp, r, b = min(x0, e.x), min(y0, e.y), max(x0, e.x), max(y0, e.y)
+        l, tp, r, b = max(0, l), max(0, tp), min(self.w, r), min(self.h, b)
+        if r - l < 2 or b - tp < 2:
+            return
+        self._bright_photo = ImageTk.PhotoImage(self.bright.crop((l, tp, r, b)))
+        if self._sel:
+            self.canvas.delete(self._sel)
+            self.canvas.delete(self._border)
+        self._sel = self.canvas.create_image(l, tp, image=self._bright_photo, anchor="nw")
+        self._border = self.canvas.create_rectangle(l, tp, r, b, outline="#58B864", width=2)
+        self.canvas.tag_raise(self._hint)
+
+    def _release(self, e):
+        x0, y0 = self.start
+        l, tp, r, b = min(x0, e.x), min(y0, e.y), max(x0, e.x), max(y0, e.y)
+        if r - l < 12 or b - tp < 12:
+            return  # a click, not a selection
+        box = (int(max(0, l) * self.sx), int(max(0, tp) * self.sy),
+               int(min(self.w, r) * self.sx), int(min(self.h, b) * self.sy))
+        self._finish(self.shot.crop(box))
+
+    def _finish(self, image):
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.destroy()
+        self.on_done(image)
 
 
 class FeedbackDialog(ctk.CTkToplevel):
@@ -78,21 +149,17 @@ class FeedbackDialog(ctk.CTkToplevel):
                                    border_color=t.FIELD_BORDER, corner_radius=8, text_color=t.INK, font=t.font(13))
         self.text.pack(fill="x")
 
-        # Screenshot with drag-to-crop
+        # Screenshot (optional): snip a part of the page you were on
         head = ctk.CTkFrame(b, fg_color="transparent")
         head.pack(fill="x", pady=(14, 6))
-        t.label(head, "Screenshot", size=12, color=t.LICHEN).pack(side="left")
+        t.label(head, "Screenshot (optional)", size=12, color=t.LICHEN).pack(side="left")
         self.btn_remove = t.link_button(head, "Remove", command=self._remove_shot, size=12)
-        self.btn_remove.pack(side="right")
-        self.btn_reset = t.link_button(head, "Use whole window", command=self._reset_crop, size=12)
-        self.lbl_hint = t.label(b, "Drag on the image to send only part of it.", size=12, color=t.LICHEN)
-        self.canvas = tk.Canvas(b, highlightthickness=1, highlightbackground=t.c(t.FROST), bd=0,
-                                bg=t.c(t.SNOWFIELD), cursor="crosshair")
-        self.canvas.pack(fill="x")
-        self.lbl_hint.pack(anchor="w", pady=(4, 0))
-        self.canvas.bind("<ButtonPress-1>", self._drag_start)
-        self.canvas.bind("<B1-Motion>", self._drag_move)
-        self.canvas.bind("<ButtonRelease-1>", self._drag_end)
+        self.btn_retake = t.link_button(head, "Retake", command=self._take, size=12)
+        self.shot_box = ctk.CTkFrame(b, fg_color="transparent")
+        self.shot_box.pack(fill="x")
+        self.btn_take = t.secondary_button(self.shot_box, "Take screenshot", command=self._take, height=38)
+        self.canvas = tk.Canvas(self.shot_box, highlightthickness=1, highlightbackground=t.c(t.FROST), bd=0,
+                                bg=t.c(t.SNOWFIELD))
         self._draw_shot()
 
         self.include_var = ctk.BooleanVar(value=True)
@@ -127,15 +194,45 @@ class FeedbackDialog(ctk.CTkToplevel):
             pass
 
     # --- screenshot ---
+    def _take(self):
+        app = self.master
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        self.withdraw()
+        app.update()
+        self.after(250, lambda: self._capture(app))  # let the window disappear first
+
+    def _capture(self, app):
+        shot = capture_window(app)
+        if shot is None:
+            self._snipped(None, failed=True)
+            return
+        SnipOverlay(app, shot, self._snipped)
+
+    def _snipped(self, image, failed=False):
+        self.deiconify()
+        self.lift()
+        self.after(100, self._grab)
+        if image is not None:
+            self.full_shot = self.shot = image
+        elif failed:
+            self.status.configure(text="Couldn't take a screenshot on this computer.", text_color=t.AMBER)
+        self._draw_shot()
+
     def _draw_shot(self):
         self.canvas.delete("all")
-        if self.full_shot is None:
-            self.canvas.configure(height=60)
-            self.canvas.create_text(PREVIEW_W // 2, 30, text="No screenshot", fill=t.c(t.LICHEN), font=(t.SANS, 12))
-            self.lbl_hint.pack_forget()
+        if self.shot is None:
+            self.canvas.pack_forget()
             self.btn_remove.pack_forget()
-            self.btn_reset.pack_forget()
+            self.btn_retake.pack_forget()
+            self.btn_take.pack(anchor="w")
             return
+        self.btn_take.pack_forget()
+        self.canvas.pack(fill="x")
+        self.btn_remove.pack(side="right")
+        self.btn_retake.pack(side="right", padx=(0, 6))
         img = self.shot
         self.scale = min(PREVIEW_W / img.width, 240 / img.height)
         w, h = int(img.width * self.scale), int(img.height * self.scale)
@@ -144,42 +241,6 @@ class FeedbackDialog(ctk.CTkToplevel):
         self.offset = (PREVIEW_W - w) // 2
         self.canvas.create_image(self.offset, 0, image=self._photo, anchor="nw")
         self._rect = None
-
-    def _drag_start(self, e):
-        if self.shot is None:
-            return
-        self._start = (e.x, e.y)
-        if self._rect:
-            self.canvas.delete(self._rect)
-        self._rect = self.canvas.create_rectangle(e.x, e.y, e.x, e.y, outline=t.c(t.EVERGREEN), width=2, dash=(4, 2))
-
-    def _drag_move(self, e):
-        if self.shot is not None and self._rect:
-            self.canvas.coords(self._rect, *self._start, e.x, e.y)
-
-    def _drag_end(self, e):
-        if self.shot is None or not self._rect:
-            return
-        x0, y0 = self._start
-        x1, y1 = e.x, e.y
-        if abs(x1 - x0) < 12 or abs(y1 - y0) < 12:
-            self.canvas.delete(self._rect)
-            self._rect = None
-            return
-        to_img = lambda v, off: max(0, int((v - off) / self.scale))  # noqa: E731
-        box = (to_img(min(x0, x1), self.offset), to_img(min(y0, y1), 0),
-               to_img(max(x0, x1), self.offset), to_img(max(y0, y1), 0))
-        box = (box[0], box[1], min(box[2], self.shot.width), min(box[3], self.shot.height))
-        if box[2] - box[0] > 10 and box[3] - box[1] > 10:
-            self.shot = self.shot.crop(box)
-            self._draw_shot()
-            if not self.btn_reset.winfo_ismapped():
-                self.btn_reset.pack(side="right", padx=(0, 6))
-
-    def _reset_crop(self):
-        self.shot = self.full_shot
-        self._draw_shot()
-        self.btn_reset.pack_forget()
 
     def _remove_shot(self):
         self.full_shot = self.shot = None

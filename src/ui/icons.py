@@ -77,8 +77,9 @@ def _line_icon(name, size, color, stroke):
         "check": [[(5, 12.5), (10, 17.5), (19, 7.5)]],
         "folder": [[(3, 7), (3, 18), (21, 18), (21, 9), (11.5, 9), (9.5, 6), (3, 6), (3, 7)]],
         "download": [[(12, 4), (12, 15)], [(7, 10), (12, 15), (17, 10)], [(4, 19), (20, 19)]],
-        "chat": [[(5, 5), (19, 5), (20, 6), (20, 14), (19, 15), (11, 15), (7, 19), (7, 15), (5, 15), (4, 14), (4, 6), (5, 5)]],
     }
+    if name == "chat":
+        return _chat(size, color, stroke)
     if name == "folder_down":
         for p in paths["folder"]:
             d.line(_pts(p, size), fill=color, width=w, joint="curve")
@@ -100,6 +101,23 @@ def _line_icon(name, size, color, stroke):
         for p in paths[name]:
             d.line(_pts(p, size), fill=color, width=w, joint="curve")
     return _done(img, size)
+
+
+def _chat(size, color, stroke):
+    """Speech bubble drawn from smooth shapes at 8x, so it stays crisp when scaled down."""
+    k = 8
+    n = size * k
+    img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    u = n / 24
+    w = max(1, round(stroke * u))
+    d.rounded_rectangle((3.2 * u, 4 * u, 20.8 * u, 16.2 * u), radius=4.2 * u, outline=color, width=w)
+    # tail: a small filled triangle joined to the bubble's bottom edge
+    d.polygon([(7.4 * u, 16.2 * u - w), (11.6 * u, 16.2 * u - w), (7.4 * u, 20.6 * u)], fill=color)
+    d.polygon([(7.4 * u + w * 1.1, 16.2 * u - w * 0.2), (10.2 * u, 16.2 * u - w * 0.2),
+               (7.4 * u + w * 1.1, 18.6 * u)], fill=(0, 0, 0, 0))
+    small = img.resize((size * 2, size * 2), Image.Resampling.LANCZOS)
+    return ctk.CTkImage(light_image=small, dark_image=small, size=(size, size))
 
 
 @lru_cache(maxsize=None)

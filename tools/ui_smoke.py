@@ -192,10 +192,26 @@ try:
     if "Original name" not in header:
         errors.append("Original name missing from Excel")
     # Feedback: open from the folder screen, send (fails on purpose) -> saved to Desktop
-    from src.ui.feedback_dialog import FeedbackDialog, capture_window
+    from src.ui.feedback_dialog import FeedbackDialog
     app.show_folder(inv); pump(1)
-    fb = FeedbackDialog(app, capture_window(app), folder=inv, screen_name="FolderScreen")
+    fb = FeedbackDialog(app, None, folder=inv, screen_name="FolderScreen")
     pump(1); shot("5b_feedback")
+    fb._take(); pump(2)
+    from src.ui.feedback_dialog import SnipOverlay
+    ov = next((w for w in app.winfo_children() if isinstance(w, SnipOverlay)), None)
+    if ov is None:
+        errors.append("snip overlay did not open")
+    else:
+        shot("5c_snip_overlay")
+        ov.canvas.event_generate("<ButtonPress-1>", x=80, y=70)
+        ov.canvas.event_generate("<B1-Motion>", x=420, y=300)
+        pump(0.5); shot("5d_snip_selecting")
+        ov.canvas.event_generate("<ButtonRelease-1>", x=420, y=300)
+        pump(1)
+        print("snippet size:", fb.shot.size if fb.shot else None)
+        if fb.shot is None or fb.shot.width < 200:
+            errors.append("snippet not attached")
+        shot("5e_feedback_with_snippet")
     fb.text.insert("1.0", "UI test feedback")
     fb._send()
     t0 = time.time()
