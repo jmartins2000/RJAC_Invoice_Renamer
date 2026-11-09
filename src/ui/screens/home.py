@@ -78,7 +78,7 @@ class FolderRow(ctk.CTkFrame):
 
 
 class HomeScreen(ctk.CTkFrame):
-    def __init__(self, master, on_open_folder, on_all_invoices, on_settings):
+    def __init__(self, master, on_open_folder, on_settings):
         super().__init__(master, fg_color=t.SNOW, corner_radius=0)
         self.on_open_folder = on_open_folder
 
@@ -90,7 +90,6 @@ class HomeScreen(ctk.CTkFrame):
                       command=on_settings, height=36, width=0, corner_radius=8, fg_color=t.SNOW,
                       hover_color=t.SNOWFIELD, border_width=1, border_color=t.FROST, text_color=t.INK,
                       font=t.font(13)).pack(side="right", padx=(8, 32))
-        t.secondary_button(bar, "All invoices", command=on_all_invoices, height=36).pack(side="right")
         feedback_button(bar).pack(side="right", padx=(0, 8))
         self.update_slot = ctk.CTkFrame(bar, fg_color="transparent", width=1, height=36)
         self.update_slot.pack(side="right")
@@ -102,17 +101,17 @@ class HomeScreen(ctk.CTkFrame):
         head.pack(fill="x")
         left = ctk.CTkFrame(head, fg_color="transparent")
         left.pack(side="left")
-        ctk.CTkLabel(left, text="Your folders", font=t.display(30), text_color=t.INK, anchor="w").pack(anchor="w")
-        t.label(left, "Each folder keeps its invoices, runs and Excel together.", size=15,
+        ctk.CTkLabel(left, text="Your clients", font=t.display(30), text_color=t.INK, anchor="w").pack(anchor="w")
+        t.label(left, "One folder per client: its invoices, runs and Excel by quarter or year.", size=15,
                 color=t.LICHEN).pack(anchor="w", pady=(6, 0))
-        t.primary_button(head, "+ Add a folder", command=self._add, width=160, height=46).pack(side="right", anchor="s")
+        t.primary_button(head, "+ Add a client folder", command=self._add, width=200, height=46).pack(side="right", anchor="s")
 
         self.projects = history.projects()
         if not self.projects:
             empty = ctk.CTkFrame(body, fg_color=t.SNOWFIELD, corner_radius=12)
             empty.pack(fill="x", pady=(28, 0))
-            t.label(empty, "No folders yet", size=16, weight="bold").pack(anchor="w", padx=24, pady=(22, 4))
-            t.label(empty, "Add the folder where you keep invoices (PDFs or photos). The app reads them, you check the values, "
+            t.label(empty, "No clients yet", size=16, weight="bold").pack(anchor="w", padx=24, pady=(22, 4))
+            t.label(empty, "Add a client's folder of invoices (PDFs or photos). The app reads them, you check the values, "
                            "and everything is renamed and kept here for the Excel later.",
                     size=14, color=t.LICHEN, wraplength=760).pack(anchor="w", padx=24, pady=(0, 22))
             return

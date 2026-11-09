@@ -251,10 +251,13 @@ def runs(path):
             "SELECT * FROM runs WHERE project=? ORDER BY started_at DESC", (os.path.abspath(path),)).fetchall()]
 
 
-def years():
+def years(project=None):
+    """Years that have invoices (for one client folder, or all)."""
+    sql, args = "SELECT DISTINCT invoice_date FROM invoices WHERE invoice_date != ''", []
+    if project:
+        sql += " AND project = ?"; args.append(os.path.abspath(project))
     with _lock:
-        return sorted({r[0][:4] for r in _db().execute(
-            "SELECT DISTINCT invoice_date FROM invoices WHERE invoice_date != ''").fetchall()}, reverse=True)
+        return sorted({r[0][:4] for r in _db().execute(sql, args).fetchall() if r[0][:4].isdigit()}, reverse=True)
 
 
 def delete(file_hash):

@@ -229,7 +229,15 @@ try:
     if fb.btn_send.cget("text") != "Saved to Desktop":
         errors.append("feedback fallback did not save to Desktop")
     fb.destroy()
-    app.show_all(); shot("6_all_invoices")
+    # Per-client period filter: Q3 2026 = the September invoices only
+    app.show_folder(inv); pump(1.5); fs = app.screen
+    fs.m_period.set("Q3 2026"); fs._load(); pump(0.5)
+    sept = [r for r in fs.rows if r["values"].get("date", "").startswith("2026-09")]
+    print("Q3 2026 rows:", len(fs.rows), "| all September:", len(sept) == len(fs.rows), "| export name:",
+          f"{os.path.basename(inv)} – {fs._period()[2]}.xlsx")
+    if not fs.rows or len(sept) != len(fs.rows):
+        errors.append("period filter wrong")
+    shot("6_folder_q3")
     app.show_fields(); shot("7_fields")
     app.screen.e_sep.delete(0, "end"); app.screen.e_sep.insert(0, " / "); app.screen._sep_changed()
     shot("7b_fields_bad_separator")

@@ -16,7 +16,6 @@ from src.ui.dialogs import UpdateDialog
 from src.ui.screens.done import DoneScreen
 from src.ui.screens.fields_screen import FieldsScreen
 from src.ui.screens.folder import FolderScreen
-from src.ui.screens.history_screen import HistoryScreen
 from src.ui.screens.home import HomeScreen
 from src.ui.screens.review import ReviewScreen
 from src.ui.screens.settings_screen import SettingsScreen
@@ -82,8 +81,7 @@ class MainWindow(ctk.CTk):
 
     def show_home(self):
         self.context_folder = None
-        screen = HomeScreen(self, on_open_folder=self.show_folder, on_all_invoices=self.show_all,
-                            on_settings=self.show_settings)
+        screen = HomeScreen(self, on_open_folder=self.show_folder, on_settings=self.show_settings)
         self._show(screen, self.show_home)
         if self.update_info:
             screen.show_update(self.update_info, self._open_update)
@@ -112,9 +110,6 @@ class MainWindow(ctk.CTk):
                               cost_eur=cost_usd * self.eur_rate, dest_folder=dest_folder, on_export=export,
                               on_back=lambda: self.show_folder(path),
                               folder_name=os.path.basename(path)), None)
-
-    def show_all(self):
-        self._show(HistoryScreen(self, on_back=self.show_home, on_open_folder=self.show_folder), self.show_all)
 
     def show_settings(self):
         self._show(SettingsScreen(self, on_back=self.show_home, on_update_found=self._update_found,

@@ -49,22 +49,23 @@ class FolderScreen(ctk.CTkFrame):
         main = ctk.CTkFrame(body, fg_color="transparent")
         main.pack(side="left", fill="both", expand=True)
 
-        # --- Invoices ---
+        # --- Invoices (filtered by invoice-date period) ---
+        from src.services import periods
         head = ctk.CTkFrame(main, fg_color="transparent")
         head.pack(fill="x", pady=(0, 10))
-        self.lbl_count = t.eyebrow(head, "")
-        self.lbl_count.pack(side="left")
+        self.periods = periods.options(history.years(path))
+        self.m_period = ctk.CTkOptionMenu(
+            head, values=[p[0] for p in self.periods], width=230, height=34, corner_radius=8,
+            fg_color=t.SNOWFIELD, button_color=t.SNOWFIELD, button_hover_color=t.FROST, text_color=t.INK,
+            dropdown_fg_color=t.SNOW, dropdown_hover_color=t.SELECTED, dropdown_text_color=t.INK,
+            font=t.font(13), dropdown_font=t.font(13), dynamic_resizing=False, command=lambda _: self._load())
+        self.m_period.pack(side="left")
+        self.lbl_count = t.label(head, "", size=13, color=t.LICHEN)
+        self.lbl_count.pack(side="right")
         self.table = InvoiceTable(main, [f for f in self.fields if f.in_excel][:5], extra=("_file", "_status"))
         self.table.pack(fill="both", expand=True)
-        rows = history.query(folder=path)
-        self.table.set_rows(rows)
-        total = sum(r["values"].get("total_value") or 0 for r in rows
-                    if isinstance(r["values"].get("total_value"), (int, float)))
-        self.lbl_count.configure(text=f"{len(rows)} invoice{'s' if len(rows) != 1 else ''} · total {total:,.2f}")
-        self.empty = None
-        if not rows:
-            self.empty = t.label(main, "No invoices read in this folder yet.", size=14, color=t.LICHEN)
-            self.empty.place(relx=0.5, rely=0.5, anchor="center")
+        self.empty = t.label(main, "", size=14, color=t.LICHEN)
+        self._load()
         t.label(main, "Double-click a row to open the file.", size=12, color=t.LICHEN).pack(anchor="w", pady=(8, 0))
 
         # --- Side: runs ---
@@ -114,6 +115,25 @@ class FolderScreen(ctk.CTkFrame):
         else:
             self.btn_main.configure(text="Folder not found")
 
+    def _period(self):
+        label = self.m_period.get()
+        return next(p for p in self.periods if p[0] == label)
+
+    def _load(self):
+        _, (start, end), _ = self._period()
+        rows = history.query(start, end, self.path)
+        self.rows = rows
+        self.table.set_rows(rows)
+        total = sum(r["values"].get("total_value") or 0 for r in rows
+                    if isinstance(r["values"].get("total_value"), (int, float)))
+        self.lbl_count.configure(text=f"{len(rows)} invoice{'s' if len(rows) != 1 else ''} · total {total:,.2f}")
+        if rows:
+            self.empty.place_forget()
+        else:
+            self.empty.configure(text="No invoices read in this folder yet." if start is None
+                                 else "No invoices dated in this period.")
+            self.empty.place(relx=0.5, rely=0.5, anchor="center")
+
     def destination(self):
         return self.project.get("dest_folder") or self.path
 
@@ -155,12 +175,13 @@ class FolderScreen(ctk.CTkFrame):
         self.on_review(self.path, bool(self.new))
 
     def _export(self):
-        rows = history.query(folder=self.path)
+        rows = self.rows
         if not rows:
             return
+        short = self._period()[2]
+        name = os.path.basename(self.path) + (f" – {short}" if short else "")
         path = filedialog.asksaveasfilename(title="Save spreadsheet", defaultextension=".xlsx",
-                                            initialdir=self.destination(),
-                                            initialfile=f"{os.path.basename(self.path)}.xlsx",
+                                            initialdir=self.destination(), initialfile=f"{name}.xlsx",
                                             filetypes=[("Excel", "*.xlsx")])
         if path:
             ok = ExcelExporter.export(rows, [f for f in fieldmod.load() if f.enabled and f.in_excel], path)
