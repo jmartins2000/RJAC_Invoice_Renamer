@@ -31,6 +31,9 @@ class GeminiService:
             from src.services import models, settings
             model = os.environ.get("RJAC_MODEL") or settings.load().get("model") or models.default_model()
         self.model = model
+        # Limit the model's "thinking": on scanned receipts it tripled the cost for no accuracy gain
+        # (tested on real receipts: 35/38 dates with low thinking vs 36/38 default, at ~1/3 of the price).
+        self.thinking = os.environ.get("RJAC_THINKING", "low") if model.startswith("gemini-3") else None
         from src.services import fields as fieldmod
         self.fields = field_defs or fieldmod.load()
         self.schema = fieldmod.json_schema(self.fields)
@@ -59,24 +62,11 @@ class GeminiService:
 
     def _apply_qr(self, file_path, data):
         """Use the official AT QR code (when present) as the source of truth for the values it holds."""
-        from src.services import fields as fieldmod
         from src.services import qr_at
         qr = qr_at.read(file_path)
         if not qr:
             return
-        enabled = {f.key: f for f in self.fields if f.enabled}
-        corrected = []
-        for key in ("date", "total_value", "invoice_number", "supplier_nif", "vat_amount"):
-            if key not in enabled or qr.get(key) in (None, ""):
-                continue
-            old, new = data.get(key), qr[key]
-            same = (abs(float(old) - float(new)) < 0.005 if isinstance(old, (int, float)) and isinstance(new, float)
-                    else str(old or "").replace(" ", "").upper() == str(new).replace(" ", "").upper())
-            if not same:
-                f = enabled[key]
-                if old not in (None, ""):
-                    corrected.append(f"{f.label} {fieldmod.display_value(f, old)} → {fieldmod.display_value(f, new)}")
-                data[key] = new
+        corrected = qr_at.apply(data, self.fields, qr)
         data["is_invoice"] = True
         data["qr_checked"] = True
         if corrected:
@@ -111,6 +101,8 @@ class GeminiService:
                     response_mime_type="application/json",
                     response_schema=self.schema,
                     temperature=0,
+                    **({"thinking_config": types.ThinkingConfig(thinking_level=self.thinking)}
+                       if self.thinking and self.thinking != "default" else {}),
                 ),
             )
         finally:

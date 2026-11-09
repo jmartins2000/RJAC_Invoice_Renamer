@@ -47,6 +47,8 @@ def parse(text):
         pass
     try:
         out["vat_amount"] = float(fields.get("N", ""))
+        if out.get("total_value") is not None:
+            out["net_amount"] = round(out["total_value"] - out["vat_amount"], 2)
     except ValueError:
         pass
     return out if out.get("date") or out.get("total_value") is not None else None
@@ -86,3 +88,49 @@ def read(path):
     except Exception as e:
         print(f"QR read failed for {path}: {e}")
     return None
+
+
+def apply(values, field_defs, qr):
+    """Overwrite values with the QR's certified ones. Returns the list of corrections (may be empty)."""
+    from src.services import fields as fieldmod
+    enabled = {f.key: f for f in field_defs if f.enabled}
+    corrected = []
+    if qr.get("supplier_nif"):
+        values["_nif"] = qr["supplier_nif"]  # remembered (hidden) so the supplier's name can be reused later
+    for key in ("date", "total_value", "invoice_number", "supplier_nif", "vat_amount", "net_amount"):
+        if key not in enabled or qr.get(key) in (None, ""):
+            continue
+        old, new = values.get(key), qr[key]
+        if isinstance(new, float):
+            try:
+                same = old not in (None, "") and abs(float(old) - new) < 0.005
+            except (TypeError, ValueError):
+                same = False
+        else:
+            same = str(old or "").replace(" ", "").upper() == str(new).replace(" ", "").upper()
+        if not same:
+            f = enabled[key]
+            if old not in (None, ""):
+                corrected.append(f"{f.label} {fieldmod.display_value(f, old)} → {fieldmod.display_value(f, new)}")
+            values[key] = new
+    return corrected
+
+
+# Fields the QR code can fill on its own (the supplier's name comes from earlier invoices of the same NIF)
+QR_FIELDS = {"date", "total_value", "invoice_number", "supplier_nif", "vat_amount", "net_amount"}
+
+
+def values_without_ai(qr, field_defs, supplier_name):
+    """All enabled values from the QR alone (+ a known supplier name), or None if something is missing."""
+    needed = {f.key for f in field_defs if f.enabled}
+    values = {"_nif": qr.get("supplier_nif")}
+    for key in needed:
+        if key == "supplier":
+            if not supplier_name:
+                return None
+            values["supplier"] = supplier_name
+        elif key in QR_FIELDS and qr.get(key) not in (None, ""):
+            values[key] = qr[key]
+        else:
+            return None
+    return values

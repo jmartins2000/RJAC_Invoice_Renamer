@@ -40,6 +40,7 @@ def main():
     ap.add_argument("--model")
     ap.add_argument("--legacy", action="store_true")
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--with-qr", action="store_true", help="also apply the AT QR correction (what the app does)")
     ap.add_argument("--update-catalog", action="store_true",
                     help="write the score and measured tokens for this model into model_catalog.json")
     args = ap.parse_args()
@@ -60,6 +61,8 @@ def main():
     else:
         from src.services.gemini_service import GeminiService
         svc = GeminiService(key, model=args.model)
+        if not args.with_qr:
+            svc._apply_qr = lambda *a, **k: None  # measure the model alone
         label = f"v2 ({svc.model})"
 
     truth = {k: v for k, v in json.load(open(os.path.join(SAMPLES, "ground_truth.json"))).items() if not k.startswith("_")}

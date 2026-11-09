@@ -87,7 +87,7 @@ def _row(row):
     return d
 
 
-def save(file_hash, values, status, path, model=None, original_name=None, project=None, run_id=None):
+def save(file_hash, values, status, path, model=None, original_name=None, project=None, run_id=None, force=False):
     """Insert or update. Never downgrades status (renamed > confirmed > read).
     `project` is the folder being reviewed: an invoice belongs to the folder it was last reviewed in
     (renaming it into another folder doesn't change that). Without a project, the old one is kept."""
@@ -97,7 +97,7 @@ def save(file_hash, values, status, path, model=None, original_name=None, projec
         db = _db()
         old = db.execute("SELECT status, original_name, processed_at, model, project, run_id FROM invoices "
                          "WHERE hash=?", (file_hash,)).fetchone()
-        if old and rank.get(old["status"], 0) > rank.get(status, 0):
+        if old and not force and rank.get(old["status"], 0) > rank.get(status, 0):
             status = old["status"]
         db.execute("""INSERT OR REPLACE INTO invoices
             (hash, values_json, status, original_name, file_name, folder, invoice_date, model, processed_at, updated_at,
@@ -264,3 +264,25 @@ def delete(file_hash):
     with _lock:
         _db().execute("DELETE FROM invoices WHERE hash=?", (file_hash,))
         _db().commit()
+
+
+def recent_cost_per_read(last_runs=3):
+    """Average USD per Gemini read over the most recent runs on this computer, or None."""
+    with _lock:
+        rows = _db().execute("SELECT cost_usd, gemini_reads FROM runs WHERE gemini_reads > 0 "
+                             "ORDER BY started_at DESC LIMIT ?", (last_runs,)).fetchall()
+    reads = sum(r[1] for r in rows)
+    return (sum(r[0] for r in rows) / reads) if reads >= 5 else None
+
+
+def supplier_name_for_nif(nif):
+    """Most recent supplier name seen for this NIF (from earlier invoices), or None."""
+    if not nif:
+        return None
+    with _lock:
+        row = _db().execute(
+            "SELECT json_extract(values_json, '$.supplier') FROM invoices "
+            "WHERE (json_extract(values_json, '$._nif') = ? OR json_extract(values_json, '$.supplier_nif') = ?) "
+            "AND COALESCE(json_extract(values_json, '$.supplier'), '') != '' "
+            "ORDER BY updated_at DESC LIMIT 1", (nif, nif)).fetchone()
+    return row[0] if row else None

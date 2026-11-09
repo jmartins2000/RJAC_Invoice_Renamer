@@ -330,7 +330,17 @@ class ReviewScreen(ctk.CTkFrame):
                 copy = os.path.join(known["folder"] or "", known["file_name"] or "")
                 elsewhere = (known["status"] == "renamed" and os.path.exists(copy)
                              and os.path.abspath(copy) != os.path.abspath(path))
-                self._post(lambda: self._on_result(path, h, known["values"], "history", known["status"],
+                values, status = dict(known["values"]), known["status"]
+                if not elsewhere:  # free, local re-check against the official QR (fixes older readings)
+                    from src.services import qr_at
+                    qr = qr_at.read(path)
+                    if qr:
+                        corrected = qr_at.apply(values, self.fields, qr)
+                        values["qr_checked"] = True
+                        if corrected:
+                            values["qr_corrected"] = corrected
+                            status = "read"  # changed: needs a look (and a new name)
+                self._post(lambda: self._on_result(path, h, values, "history", status,
                                                    copy if elsewhere else None))
                 return
             parsed = fieldmod.parse_filename(os.path.basename(path), self.fields, self.filename_keys,
@@ -338,6 +348,15 @@ class ReviewScreen(ctk.CTkFrame):
             if parsed and needed <= set(parsed):
                 self._post(lambda: self._on_result(path, h, parsed, "filename", "renamed"))
                 return
+        if not force_gemini:  # official QR + a supplier we've seen before: no AI needed (free, certified)
+            from src.services import qr_at
+            qr = qr_at.read(path)
+            if qr:
+                values = qr_at.values_without_ai(qr, self.fields, history.supplier_name_for_nif(qr.get("supplier_nif")))
+                if values:
+                    values["qr_checked"] = True
+                    self._post(lambda: self._on_result(path, h, values, "qr", None))
+                    return
         data = self.gemini.extract_invoice_data(path)
         self._post(lambda: self._on_result(path, h, data, "gemini", None))
 
@@ -372,7 +391,8 @@ class ReviewScreen(ctk.CTkFrame):
             if h:
                 history.save(h, data, self.status[path], path,
                              model=self.gemini.model if source == "gemini" else None,
-                             project=self.source_folder, run_id=self.run_id)
+                             project=self.source_folder, run_id=self.run_id,
+                             force=bool(self.qr.get(path)))  # a QR correction re-opens the invoice
         self._refresh_status()
         if self.files and self._path(self.current) == path:
             self._show_values()
@@ -466,6 +486,9 @@ class ReviewScreen(ctk.CTkFrame):
                          error=False, info=True)
         elif self.warnings.get(path):
             self._notice(self.warnings[path], error=False, retry=True)
+        elif self.source.get(path) == "qr":
+            self._notice("Read from the invoice's official QR code (no AI needed, no cost). "
+                         "Supplier name from earlier invoices with the same NIF.", error=False, info=True, retry=True)
         elif self.qr.get(path):
             self._notice("Corrected using the invoice's official QR code: " + "; ".join(self.qr[path]) + ".",
                          error=False, info=True)

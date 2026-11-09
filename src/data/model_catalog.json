@@ -18,10 +18,11 @@
         }
       ],
       "tokens_per_invoice": [
-        1036,
-        276
+        1510,
+        90
       ],
-      "tested": "18/18"
+      "tested": "18/18",
+      "note": "Thinking limited to 'low' (measured on real scanned receipts)."
     },
     "gemini-3.1-flash-lite": {
       "label": "Gemini 3.1 Flash Lite",

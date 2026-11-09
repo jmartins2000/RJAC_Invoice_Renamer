@@ -177,7 +177,7 @@ class FolderScreen(ctk.CTkFrame):
         n = len(new)
         if n:
             mid = settings.load().get("model") or models.default_model()
-            cost = models.cost_per_invoice(mid)
+            cost = history.recent_cost_per_read() or models.cost_per_invoice(mid)
             label = f"Read {n} new file{'s' if n != 1 else ''}"
             if cost:
                 label += f" · ~€{max(0.01, n * cost * self.eur_rate):.2f}"

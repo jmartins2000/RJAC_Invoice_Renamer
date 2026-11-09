@@ -70,8 +70,8 @@ if not _qr or _qr.get("date") != "2026-06-06" or _qr.get("total_value") != 50.0 
     errors.append(f"AT QR not read correctly: {_qr}")
 shutil.copy(_receipt_path, os.path.join(inv, "talao com qr.png"))
 history.save(history.fingerprint(os.path.join(inv, "talao com qr.png")),
-             {"date": "2026-06-06", "total_value": 50.0, "invoice_number": "FS 274062002/668058",
-              "supplier": "Fuelgest24"}, "read", os.path.join(inv, "talao com qr.png"))
+             {"date": "2024-06-06", "total_value": 50.0, "invoice_number": "FS 274062002/668058",
+              "supplier": "Fuelgest24"}, "renamed", os.path.join(inv, "talao com qr.png"))  # wrong year from an old version
 import tkinter  # noqa: E402
 
 tkinter.Tk.report_callback_exception = lambda self, *exc: errors.append(exc)
@@ -161,6 +161,10 @@ try:
         shot("2d_review_zoom_200")
         pv.set_zoom(0)
     rv._goto(rv.files.index("talao com qr.png")); pump(3)
+    qpath = os.path.join(inv, "talao com qr.png")
+    print("history re-check via QR:", rv.values[qpath].get("date"), "| corrections:", rv.qr.get(qpath))
+    if rv.values[qpath].get("date") != "2026-06-06":
+        errors.append("wrong year from history was not corrected by the QR re-check")
     print("QR outline on preview:", rv.preview.highlight)
     if not rv.preview.highlight:
         errors.append("QR code not outlined on the preview")
