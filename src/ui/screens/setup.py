@@ -126,7 +126,7 @@ class SetupScreen(ctk.CTkFrame):
         t.label(sep_row, "Separator", size=13, color=t.LICHEN).pack(side="left", padx=(0, 12))
         self.sep_labels = {" ~ ": "~", " - ": "-", " _ ": "_", " ": "Space"}
         self.sep_menu = ctk.CTkSegmentedButton(
-            sep_row, values=list(self.sep_labels.values()), command=self._set_separator, height=30,
+            sep_row, values=list(self.sep_labels.values()), command=self._set_separator, height=32, width=220,
             font=t.font(13), fg_color=t.SNOWFIELD, selected_color=t.EVERGREEN,
             selected_hover_color=t.EVERGREEN_HOVER, unselected_color=t.SNOWFIELD,
             unselected_hover_color=t.FROST, text_color=t.INK, corner_radius=8)
@@ -160,16 +160,14 @@ class SetupScreen(ctk.CTkFrame):
             w.destroy()
         self.chips = {}
         items = [(f.key, f.label) for f in self.fields if f.enabled] + [(fieldmod.ORIGINAL, "Original name")]
-        row, width = None, 0
-        for key, text in items:
-            if row is None or width > 330:
+        row = None
+        for i, (key, text) in enumerate(items):
+            if i % 3 == 0:  # three chips per row fits the narrowest window
                 row = ctk.CTkFrame(self.chips_box, fg_color="transparent")
                 row.pack(anchor="w")
-                width = 0
             b = ctk.CTkButton(row, text=text, height=34, width=0, corner_radius=17, font=t.font(13),
                               border_width=1, command=lambda k=key: self._toggle(k))
             b.pack(side="left", padx=(0, 8), pady=(0, 8))
-            width += len(text) * 8 + 40
             self.chips[key] = b
 
     def _is_on(self, key):

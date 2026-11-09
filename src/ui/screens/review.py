@@ -112,9 +112,9 @@ class RenameDialog(ctk.CTkToplevel):
         t.eyebrow(body, "Save to").pack(anchor="w", pady=(20, 6))
         row = ctk.CTkFrame(body, fg_color=t.SNOWFIELD, corner_radius=8)
         row.pack(fill="x")
+        t.link_button(row, "Change", command=self._change).pack(side="right", padx=8)
         self.lbl_dest = t.label(row, "", size=13)
         self.lbl_dest.pack(side="left", padx=14, pady=10, fill="x", expand=True)
-        t.link_button(row, "Change", command=self._change).pack(side="right", padx=8)
         self._show_dest()
 
         tg = ctk.CTkFrame(body, fg_color="transparent")
@@ -140,7 +140,7 @@ class RenameDialog(ctk.CTkToplevel):
 
     def _show_dest(self):
         from src.ui.screens.setup import shorten
-        self.lbl_dest.configure(text=shorten(self.dest, 56))
+        self.lbl_dest.configure(text=shorten(self.dest, 46))
 
     def _change(self):
         folder = filedialog.askdirectory(parent=self, title="Save renamed files to", initialdir=self.dest)
@@ -453,14 +453,15 @@ class ReviewScreen(ctk.CTkFrame):
                          error=True)
         elif self.warnings.get(path):
             self._notice(self.warnings[path], error=False, retry=True)
+        elif not data.get("date") or data.get("total_value") in (None, ""):
+            self._notice("Some values couldn't be found. Please fill them in, or read it again.",
+                         error=False, retry=True)
         elif self.source.get(path) == "history":
             when = "renamed" if self.status.get(path) == "renamed" else "read"
             self._notice(f"Already {when} before: values come from the history (no new Gemini cost).",
                          error=False, info=True, retry=True)
         elif self.source.get(path) == "filename":
             self._notice("Values taken from the filename (no Gemini cost).", error=False, info=True, retry=True)
-        elif not data.get("date") or data.get("total_value") in (None, ""):
-            self._notice("Some values couldn't be found. Please fill them in.", error=False)
         for f in self.fields:
             e = self.entries[f.key]
             e.delete(0, "end")

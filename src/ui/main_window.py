@@ -28,8 +28,11 @@ class MainWindow(ctk.CTk):
         ctk.set_appearance_mode("light")
         super().__init__(fg_color=t.SNOW)
         self.title(APP_CONFIG["NAME"])
-        self.geometry("1120x760")
-        self.minsize(980, 680)
+        # Fit small laptop screens (e.g. 1366x768 at 125% scaling ≈ 1093x614 usable)
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        w, h = min(1120, sw - 40), min(760, sh - 90)
+        self.geometry(f"{w}x{h}+{max(0, (sw - w) // 2)}+{max(0, (sh - h) // 3)}")
+        self.minsize(min(900, w), min(600, h))
         self._set_icon()
         t.resolve_fonts(self)
 
