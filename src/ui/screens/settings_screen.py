@@ -32,8 +32,12 @@ class SettingsScreen(ctk.CTkFrame):
         feedback_button(bar).pack(side="right", padx=24)
         t.divider(self).pack(fill="x")
 
-        col = ctk.CTkFrame(self, fg_color="transparent", width=640)
-        col.pack(pady=(44, 0))
+        # Scrollable, so the whole page is reachable in a small window
+        scroll = ctk.CTkScrollableFrame(self, fg_color=t.SNOW, corner_radius=0, scrollbar_button_color=t.FROST,
+                                        scrollbar_button_hover_color=t.FIELD_BORDER)
+        scroll.pack(fill="both", expand=True)
+        col = ctk.CTkFrame(scroll, fg_color="transparent", width=640)
+        col.pack(pady=(44, 32))
 
         # --- API key ---
         head = ctk.CTkFrame(col, fg_color="transparent")

@@ -276,6 +276,16 @@ try:
     shot("7b_fields_bad_separator")
     app.screen._reset_sep()
     app.show_settings(); shot("8_settings")
+    # Small window: the whole Settings page must be reachable by scrolling
+    app.geometry("1000x520"); pump(1); app.show_settings(); pump(1)
+    sc = next(w for w in app.screen.winfo_children() if isinstance(w, __import__("customtkinter").CTkScrollableFrame))
+    view0 = sc._parent_canvas.yview()
+    target = sc.winfo_children()[0] if sc.winfo_children() else sc
+    target.event_generate("<MouseWheel>", delta=-120); pump(0.4)
+    print("settings in small window:", view0, "->", sc._parent_canvas.yview())
+    if view0[1] >= 1.0 or sc._parent_canvas.yview()[0] <= view0[0]:
+        errors.append("Settings page not scrollable in a small window")
+    shot("8b_settings_small_window_scrolled")
     # Night mode
     app.set_appearance("dark"); pump(1); shot("9_dark_settings")
     app.show_home(); shot("9_dark_home")

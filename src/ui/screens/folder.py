@@ -43,9 +43,10 @@ class FolderScreen(ctk.CTkFrame):
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=32, pady=(24, 24))
 
-        side = ctk.CTkFrame(body, fg_color="transparent", width=290)
-        side.pack(side="right", fill="y", padx=(28, 0))
-        side.pack_propagate(False)
+        side_box = ctk.CTkScrollableFrame(body, fg_color=t.SNOW, corner_radius=0, width=290,
+                                          scrollbar_button_color=t.FROST, scrollbar_button_hover_color=t.FIELD_BORDER)
+        side_box.pack(side="right", fill="y", padx=(28, 0))
+        side = side_box  # scrolls when the window is short
         main = ctk.CTkFrame(body, fg_color="transparent")
         main.pack(side="left", fill="both", expand=True)
 
@@ -109,7 +110,7 @@ class FolderScreen(ctk.CTkFrame):
         self.on_back = on_back
         ctk.CTkButton(side, text="Remove from the list", height=28, width=0, corner_radius=6,
                       fg_color="transparent", hover_color=t.RED_BG, text_color=t.LICHEN, font=t.font(12),
-                      command=self._remove).pack(side="bottom", anchor="w")
+                      command=self._remove).pack(anchor="w", pady=(24, 0))
 
         if os.path.isdir(path):
             background.run(self, lambda: history.new_pdfs(path), self._new_counted)
