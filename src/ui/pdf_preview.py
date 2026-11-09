@@ -54,7 +54,7 @@ class PDFPreviewFrame(ctk.CTkFrame):
                    text_color=t.INK, font=t.font(15))
         ctk.CTkButton(bar, text="−", command=lambda: self.set_zoom(self.zoom_i - 1), **btn).pack(
             side="left", padx=(4, 0), pady=3)
-        self.lbl_zoom = ctk.CTkLabel(bar, text="Fit", width=44, font=t.font(12), text_color=t.LICHEN)
+        self.lbl_zoom = ctk.CTkLabel(bar, text="100%", width=44, font=t.font(12), text_color=t.LICHEN)
         self.lbl_zoom.pack(side="left")
         ctk.CTkButton(bar, text="+", command=lambda: self.set_zoom(self.zoom_i + 1), **btn).pack(side="left")
         ctk.CTkFrame(bar, width=1, height=18, fg_color=t.FROST).pack(side="left", padx=4)
@@ -88,6 +88,10 @@ class PDFPreviewFrame(ctk.CTkFrame):
         if i == self.zoom_i or not self.pil_images:
             return
         center = self._view_center()
+        if self.zoom_i == 0:
+            # From "fit", zoom in on the top of the page (where invoice details usually are)
+            vy = self.canvas.yview()
+            center = (center[0], vy[0] + (vy[1] - vy[0]) * 0.18)
         self.zoom_i = i
         self._render(keep_view=True, center=center)
 
@@ -122,12 +126,12 @@ class PDFPreviewFrame(ctk.CTkFrame):
             self.canvas.create_image(x, y, image=photo, anchor="nw")
             y += h + GAP
         self.canvas.configure(scrollregion=(0, 0, canvas_w, y + PAD - GAP))
-        self.lbl_zoom.configure(text="Fit" if self.zoom_i == 0 else f"{int(ZOOMS[self.zoom_i] * 100)}%")
+        self.lbl_zoom.configure(text=f"{int(ZOOMS[self.zoom_i] * 100)}%")
         if keep_view and center:
             fx, fy = center
             vx, vy = self.canvas.xview(), self.canvas.yview()
             self.canvas.xview_moveto(max(0.0, fx - (vx[1] - vx[0]) / 2))
-            self.canvas.yview_moveto(max(0.0, fy - (vy[1] - vy[0]) / 2))
+            self.canvas.yview_moveto(max(0.0, fy - (vy[1] - vy[0]) * (0.18 if fy < 0.3 else 0.5)))
         else:
             self.canvas.xview_moveto(0)
             self.canvas.yview_moveto(0)
