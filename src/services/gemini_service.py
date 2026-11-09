@@ -47,6 +47,7 @@ class GeminiService:
                 pdf_bytes = f.read()
             from src.services.file_types import mime_type
             data = self._call_with_retries(pdf_bytes, filename, mime_type(filename))
+            self._apply_qr(file_path, data)
             if not data.get("is_invoice", True):
                 data["warning"] = "This doesn't look like an invoice. Please check the values."
             print(f"[DONE] {filename}")
@@ -55,6 +56,31 @@ class GeminiService:
             msg = friendly_error(e)
             print(f"[ERROR] {filename}: {msg}")
             return {"error": msg}
+
+    def _apply_qr(self, file_path, data):
+        """Use the official AT QR code (when present) as the source of truth for the values it holds."""
+        from src.services import fields as fieldmod
+        from src.services import qr_at
+        qr = qr_at.read(file_path)
+        if not qr:
+            return
+        enabled = {f.key: f for f in self.fields if f.enabled}
+        corrected = []
+        for key in ("date", "total_value", "invoice_number", "supplier_nif", "vat_amount"):
+            if key not in enabled or qr.get(key) in (None, ""):
+                continue
+            old, new = data.get(key), qr[key]
+            same = (abs(float(old) - float(new)) < 0.005 if isinstance(old, (int, float)) and isinstance(new, float)
+                    else str(old or "").replace(" ", "").upper() == str(new).replace(" ", "").upper())
+            if not same:
+                f = enabled[key]
+                if old not in (None, ""):
+                    corrected.append(f"{f.label} {fieldmod.display_value(f, old)} → {fieldmod.display_value(f, new)}")
+                data[key] = new
+        data["is_invoice"] = True
+        data["qr_checked"] = True
+        if corrected:
+            data["qr_corrected"] = corrected
 
     def _call_with_retries(self, pdf_bytes, filename, mime="application/pdf"):
         for attempt in range(1, MAX_ATTEMPTS + 1):

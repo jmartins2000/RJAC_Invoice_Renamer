@@ -163,6 +163,7 @@ class ReviewScreen(ctk.CTkFrame):
         self.renamed_count = 0
         self.duplicate_of = {}     # path -> filename of the identical file it duplicates (in this folder)
         self.copy_elsewhere = {}   # path -> where the already-renamed copy of this invoice is
+        self.qr = {}               # path -> list of corrections made from the official QR code ([] = all matched)
         history.add_project(source_folder)
         self.run_id = history.start_run(source_folder, len(self.files))
 
@@ -355,6 +356,9 @@ class ReviewScreen(ctk.CTkFrame):
         else:
             data = dict(data)
             warning = data.pop("warning", None)
+            if data.pop("qr_checked", None):
+                self.qr[path] = data.pop("qr_corrected", None) or []
+            data.pop("qr_corrected", None)
             if source == "gemini":
                 self.gemini_reads += 1
                 if not data.get("is_invoice", True):
@@ -457,6 +461,11 @@ class ReviewScreen(ctk.CTkFrame):
                          error=False, info=True)
         elif self.warnings.get(path):
             self._notice(self.warnings[path], error=False, retry=True)
+        elif self.qr.get(path):
+            self._notice("Corrected using the invoice's official QR code: " + "; ".join(self.qr[path]) + ".",
+                         error=False, info=True)
+        elif path in self.qr:
+            self._notice("✓ Checked against the invoice's official QR code.", error=False, info=True)
         elif not data.get("date") or data.get("total_value") in (None, ""):
             self._notice("Some values couldn't be found. Please fill them in, or read it again.",
                          error=False, retry=True)

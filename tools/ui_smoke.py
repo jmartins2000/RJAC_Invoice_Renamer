@@ -53,6 +53,21 @@ history.save(history.fingerprint(_photo_path), {"date": "2026-10-20", "total_val
              "invoice_number": "FT 9/2026", "supplier": "Galp Energia"}, "read", _photo_path)
 
 errors = []
+# Official AT QR code: generate one on a receipt image and check it is read back exactly
+import zxingcpp  # noqa: E402
+from src.services import qr_at  # noqa: E402
+_qr_text = ("A:500052999*B:516953648*C:PT*D:FS*E:N*F:20260606*G:FS 274062002/668058*H:JFNMG2WJ-668058"
+            "*I1:PT*I7:40.65*I8:9.35*N:9.35*O:50.00*Q:FPEf*R:0177")
+_qr_img = zxingcpp.write_barcode_to_image(zxingcpp.create_barcode(_qr_text, zxingcpp.BarcodeFormat.QRCode), scale=6)
+_receipt = _Img.new("RGB", (900, 1500), "white")
+_mv = memoryview(_qr_img)
+_receipt.paste(_Img.frombytes("L", (_mv.shape[1], _mv.shape[0]), _mv.tobytes()).convert("RGB"), (250, 900))
+_receipt_path = os.path.join(work, "qr_receipt.png")
+_receipt.save(_receipt_path)
+_qr = qr_at.read(_receipt_path)
+print("AT QR read:", _qr)
+if not _qr or _qr.get("date") != "2026-06-06" or _qr.get("total_value") != 50.0 or _qr.get("invoice_number") != "FS 274062002/668058":
+    errors.append(f"AT QR not read correctly: {_qr}")
 import tkinter  # noqa: E402
 
 tkinter.Tk.report_callback_exception = lambda self, *exc: errors.append(exc)

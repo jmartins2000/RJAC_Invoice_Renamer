@@ -9,6 +9,7 @@ python-dotenv
 requests
 openpyxl
 pillow
+zxing-cpp          # reads the official AT QR code on Portuguese invoices
 pyobjc-framework-Cocoa; sys_platform == "darwin"  # feedback screenshots without screen-recording permission
 
 # Build (packaging the app)

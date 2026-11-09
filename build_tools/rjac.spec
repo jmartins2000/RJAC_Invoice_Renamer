@@ -9,7 +9,7 @@ NAME = "RJAC Invoice Renamer"
 
 datas = [(os.path.join(ROOT, "assets"), "assets"),
          (os.path.join(ROOT, "src", "data"), os.path.join("src", "data"))]
-binaries, hiddenimports = [], ["keyring.backends.Windows", "keyring.backends.macOS"]
+binaries, hiddenimports = [], ["keyring.backends.Windows", "keyring.backends.macOS", "zxingcpp"]
 if sys.platform == "darwin":
     hiddenimports += ["objc", "AppKit", "Foundation"]  # feedback: render our own window (no permission)
 for pkg in ("customtkinter",):

@@ -129,8 +129,15 @@ def json_schema(fields):
 
 
 def prompt(fields):
+    import datetime
+    today = datetime.date.today().isoformat()
     lines = [
         "You are reading a single document that is usually a supplier invoice (often Portuguese).",
+        f"Today's date is {today}. Documents can be dated anywhere up to today, including this year.",
+        "Copy every digit exactly as printed, including years. Never change a year or a number to make it look "
+        "more plausible.",
+        "Portuguese documents usually print dates as YYYY-MM-DD or DD-MM-YYYY; card-terminal slips may use YY-MM-DD. "
+        "Never take the year from a document series (e.g. 'FS 2021/171048' is a series, not a date).",
         "Extract the fields below. Only use information printed in THIS document.",
         "If a field is not present, return an empty string (or null for numbers). Never guess or invent values.",
         "Numbers use a dot as decimal separator (1.234,56 → 1234.56). Dates are YYYY-MM-DD.",
