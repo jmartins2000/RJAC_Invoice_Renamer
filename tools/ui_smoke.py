@@ -238,6 +238,11 @@ try:
     if not fs.rows or len(sept) != len(fs.rows):
         errors.append("period filter wrong")
     shot("6_folder_q3")
+    fs._custom_range("2026-09-05", "2026-09-10"); pump(0.5)
+    print("custom range rows:", len(fs.rows), "| label:", fs.m_period.get())
+    if len(fs.rows) != 6:
+        errors.append(f"custom range should show 6 invoices, got {len(fs.rows)}")
+    shot("6b_folder_custom_range")
     app.show_fields(); shot("7_fields")
     app.screen.e_sep.delete(0, "end"); app.screen.e_sep.insert(0, " / "); app.screen._sep_changed()
     shot("7b_fields_bad_separator")

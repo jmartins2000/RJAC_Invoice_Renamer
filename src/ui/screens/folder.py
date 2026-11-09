@@ -58,13 +58,14 @@ class FolderScreen(ctk.CTkFrame):
             head, values=[p[0] for p in self.periods], width=230, height=34, corner_radius=8,
             fg_color=t.SNOWFIELD, button_color=t.SNOWFIELD, button_hover_color=t.FROST, text_color=t.INK,
             dropdown_fg_color=t.SNOW, dropdown_hover_color=t.SELECTED, dropdown_text_color=t.INK,
-            font=t.font(13), dropdown_font=t.font(13), dynamic_resizing=False, command=lambda _: self._load())
+            font=t.font(13), dropdown_font=t.font(13), dynamic_resizing=False, command=self._period_chosen)
         self.m_period.pack(side="left")
         self.lbl_count = t.label(head, "", size=13, color=t.LICHEN)
         self.lbl_count.pack(side="right")
         self.table = InvoiceTable(main, [f for f in self.fields if f.in_excel][:5], extra=("_file", "_status"))
         self.table.pack(fill="both", expand=True)
         self.empty = t.label(main, "", size=14, color=t.LICHEN)
+        self._last_period = self.m_period.get()
         self._load()
         t.label(main, "Double-click a row to open the file.", size=12, color=t.LICHEN).pack(anchor="w", pady=(8, 0))
 
@@ -118,6 +119,27 @@ class FolderScreen(ctk.CTkFrame):
     def _period(self):
         label = self.m_period.get()
         return next(p for p in self.periods if p[0] == label)
+
+    def _period_chosen(self, label):
+        from src.services import periods
+        if label == periods.CUSTOM:
+            CustomRangeDialog(self.winfo_toplevel(), on_done=self._custom_range,
+                              on_cancel=lambda: self.m_period.set(self._last_period))
+            return
+        self._last_period = label
+        self._load()
+
+    def _custom_range(self, start, end):
+        from src.services import periods
+        label = f"{periods.nice(start)} – {periods.nice(end)}"
+        short = f"{start} to {end}"
+        self.periods = [p for p in self.periods if p[0] != getattr(self, "_custom_label", None)]
+        self.periods.insert(2, (label, (start, end), short))
+        self._custom_label = label
+        self.m_period.configure(values=[p[0] for p in self.periods])
+        self.m_period.set(label)
+        self._last_period = label
+        self._load()
 
     def _load(self):
         _, (start, end), _ = self._period()
@@ -186,3 +208,52 @@ class FolderScreen(ctk.CTkFrame):
         if path:
             ok = ExcelExporter.export(rows, [f for f in fieldmod.load() if f.enabled and f.in_excel], path)
             self.btn_export.configure(text="✓ Exported" if ok else "Export failed")
+
+
+class CustomRangeDialog(ctk.CTkToplevel):
+    """Asks for a From/To invoice-date range (day first, any separator)."""
+
+    def __init__(self, master, on_done, on_cancel):
+        super().__init__(master)
+        self.on_done, self.on_cancel = on_done, on_cancel
+        self.title("Custom dates")
+        self.configure(fg_color=t.SNOW)
+        self.resizable(False, False)
+        self.transient(master)
+        w, h = 420, 270
+        master.update_idletasks()
+        self.geometry(f"{w}x{h}+{master.winfo_rootx() + (master.winfo_width() - w) // 2}+{master.winfo_rooty() + 140}")
+        b = ctk.CTkFrame(self, fg_color="transparent")
+        b.pack(fill="both", expand=True, padx=26, pady=22)
+        t.label(b, "Invoices dated between", size=18, weight="bold").pack(anchor="w")
+        row = ctk.CTkFrame(b, fg_color="transparent")
+        row.pack(fill="x", pady=(16, 0))
+        self.e_from = t.entry(row, placeholder="From, e.g. 01/02/2026", width=170)
+        self.e_from.pack(side="left")
+        t.label(row, "  –  ", size=14, color=t.LICHEN).pack(side="left")
+        self.e_to = t.entry(row, placeholder="To, e.g. 30/04/2026", width=170)
+        self.e_to.pack(side="left")
+        self.lbl = t.label(b, "Both dates are included.", size=12, color=t.LICHEN)
+        self.lbl.pack(anchor="w", pady=(8, 0))
+        btns = ctk.CTkFrame(b, fg_color="transparent")
+        btns.pack(side="bottom", fill="x")
+        t.primary_button(btns, "Show", command=self._ok, width=100, height=38).pack(side="right")
+        t.secondary_button(btns, "Cancel", command=self._cancel, width=90, height=38).pack(side="right", padx=10)
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.bind("<Return>", lambda _e: self._ok())
+        self.after(100, lambda: (self.grab_set(), self.e_from.focus_set()))
+
+    def _ok(self):
+        from src.services import periods
+        a, b = periods.parse_date(self.e_from.get()), periods.parse_date(self.e_to.get())
+        if not a or not b:
+            self.lbl.configure(text="Please write both dates, e.g. 01/02/2026.", text_color=t.RED)
+            return
+        if a > b:
+            a, b = b, a
+        self.destroy()
+        self.on_done(a, b)
+
+    def _cancel(self):
+        self.destroy()
+        self.on_cancel()
