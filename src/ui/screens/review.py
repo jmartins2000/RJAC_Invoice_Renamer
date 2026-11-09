@@ -147,8 +147,8 @@ class ReviewScreen(ctk.CTkFrame):
         self.ui_queue = queue.Queue()  # worker threads post callables; the UI thread runs them
         self._closed = False
 
-        self.files = sorted((f for f in os.listdir(source_folder)
-                             if f.lower().endswith(".pdf") and not f.startswith(".")), key=str.lower)
+        from src.services.file_types import list_invoices
+        self.files = list_invoices(source_folder)
         self.current = 0
         self.hashes = {}      # path -> content hash
         self.values = {}      # path -> current values (from history, filename, Gemini or the user)

@@ -84,7 +84,7 @@ class HistoryScreen(ctk.CTkFrame):
         self.table = InvoiceTable(body, self.fields, extra=("_folder", "_file", "_status"))
         self.table.pack(fill="both", expand=True, pady=(16, 0))
         self.empty = t.label(body, "", size=14, color=t.LICHEN)
-        t.label(body, "Double-click a row to open the PDF.", size=12, color=t.LICHEN).pack(anchor="w", pady=(8, 0))
+        t.label(body, "Double-click a row to open the file.", size=12, color=t.LICHEN).pack(anchor="w", pady=(8, 0))
         self._load()
 
     def _load(self):

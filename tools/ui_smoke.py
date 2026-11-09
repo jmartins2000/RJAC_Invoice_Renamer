@@ -43,6 +43,13 @@ for name, values in FAKE:
 
 import shutil  # noqa: E402
 shutil.copy(os.path.join(inv, "EDP outubro.pdf"), os.path.join(inv, "TESTE.pdf"))  # an exact copy
+from PIL import Image as _Img, ImageDraw as _Draw  # noqa: E402
+_photo = _Img.new("RGB", (800, 1100), "white")
+_Draw.Draw(_photo).text((60, 60), "Galp Energia  Fatura FT 9/2026  Total 41.80", fill="black")
+_photo_path = os.path.join(inv, "foto fatura galp.png")
+_photo.save(_photo_path)
+history.save(history.fingerprint(_photo_path), {"date": "2026-10-20", "total_value": 41.8,
+             "invoice_number": "FT 9/2026", "supplier": "Galp Energia"}, "read", _photo_path)
 
 errors = []
 import tkinter  # noqa: E402
@@ -134,8 +141,14 @@ try:
     todo, done, skipped = rv._renamable()
     if "TESTE.pdf" in todo:
         errors.append("duplicate would be renamed")
+    if "foto fatura galp.png" not in rv.files:
+        errors.append("image invoice not listed")
     out_dir = os.path.join(work, "renamed")
     rv._do_rename(todo, done, skipped, out_dir, False); shot("4_done")   # keep originals, rename into another folder
+    pngs = [f for f in os.listdir(out_dir) if f.endswith(".png")]
+    print("renamed image:", pngs)
+    if not pngs:
+        errors.append("image invoice not renamed with its .png extension")
     if not os.path.exists(teste):
         errors.append("duplicate was touched")
     print("files after rename:", sorted(os.listdir(inv))[:4], "...")

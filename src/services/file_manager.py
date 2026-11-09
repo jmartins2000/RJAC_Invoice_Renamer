@@ -26,8 +26,9 @@ class FileManager:
             
             # Clean filename
             clean_name = FileManager._sanitize_filename(new_filename)
-            if not clean_name.lower().endswith('.pdf'):
-                clean_name += '.pdf'
+            ext = os.path.splitext(source_path)[1].lower() or ".pdf"
+            if not clean_name.lower().endswith(ext):
+                clean_name += ext
                 
             dest_path = os.path.join(dest_folder, clean_name)
             if os.path.abspath(dest_path) == os.path.abspath(source_path):
@@ -37,7 +38,7 @@ class FileManager:
             counter = 1
             base_name = os.path.splitext(clean_name)[0]
             while os.path.exists(dest_path):
-                dest_path = os.path.join(dest_folder, f"{base_name}_{counter}.pdf")
+                dest_path = os.path.join(dest_folder, f"{base_name}_{counter}{ext}")
                 counter += 1
             
             # Copy file

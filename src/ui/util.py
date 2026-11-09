@@ -13,7 +13,5 @@ def shorten(text, limit=52):
 
 
 def count_pdfs(folder):
-    try:
-        return sum(1 for f in os.listdir(folder) if f.lower().endswith(".pdf") and not f.startswith("."))
-    except OSError:
-        return 0
+    from src.services.file_types import list_invoices
+    return len(list_invoices(folder))

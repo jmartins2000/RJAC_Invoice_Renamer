@@ -15,6 +15,14 @@ class PDFService:
             pdf_path: Path to PDF file
             target_width: Target display width in pixels (default 550)
         """
+        from src.services.file_types import is_image
+        if is_image(pdf_path):  # photos / scans / screenshots: show as-is, upright
+            try:
+                from PIL import ImageOps
+                return [ImageOps.exif_transpose(Image.open(pdf_path)).convert("RGB")]
+            except Exception as e:
+                print(f"Error opening image {pdf_path}: {e}")
+                return []
         images = []
         try:
             doc = fitz.open(pdf_path)

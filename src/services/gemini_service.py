@@ -45,7 +45,8 @@ class GeminiService:
         try:
             with open(file_path, "rb") as f:
                 pdf_bytes = f.read()
-            data = self._call_with_retries(pdf_bytes, filename)
+            from src.services.file_types import mime_type
+            data = self._call_with_retries(pdf_bytes, filename, mime_type(filename))
             if not data.get("is_invoice", True):
                 data["warning"] = "This doesn't look like an invoice. Please check the values."
             print(f"[DONE] {filename}")
@@ -55,10 +56,10 @@ class GeminiService:
             print(f"[ERROR] {filename}: {msg}")
             return {"error": msg}
 
-    def _call_with_retries(self, pdf_bytes, filename):
+    def _call_with_retries(self, pdf_bytes, filename, mime="application/pdf"):
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                return self._call(pdf_bytes)
+                return self._call(pdf_bytes, mime)
             except Exception as e:
                 if attempt == MAX_ATTEMPTS or not is_transient(e):
                     raise
@@ -66,14 +67,14 @@ class GeminiService:
                 print(f"[RETRY {attempt}] {filename}: {friendly_error(e)} — waiting {wait:.0f}s")
                 time.sleep(wait)
 
-    def _call(self, pdf_bytes):
+    def _call(self, pdf_bytes, mime="application/pdf"):
         uploaded = None
         if len(pdf_bytes) <= INLINE_LIMIT_BYTES:
-            pdf_part = types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")
+            pdf_part = types.Part.from_bytes(data=pdf_bytes, mime_type=mime)
         else:
             import io
             uploaded = self.client.files.upload(
-                file=io.BytesIO(pdf_bytes), config={"mime_type": "application/pdf"}
+                file=io.BytesIO(pdf_bytes), config={"mime_type": mime}
             )
             pdf_part = uploaded
         try:

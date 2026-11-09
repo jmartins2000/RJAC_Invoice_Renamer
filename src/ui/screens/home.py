@@ -71,7 +71,7 @@ class FolderRow(ctk.CTkFrame):
 
     def set_new(self, n, to_check):
         if n:
-            self._badge(f"  {n} new PDF{'s' if n != 1 else ''}  ", t.SELECTED, t.EVERGREEN)
+            self._badge(f"  {n} new file{'s' if n != 1 else ''}  ", t.SELECTED, t.EVERGREEN)
         elif not to_check:
             self._badge("  All done  ", "transparent", t.NEEDLE)
 
@@ -110,7 +110,7 @@ class HomeScreen(ctk.CTkFrame):
             empty = ctk.CTkFrame(body, fg_color=t.SNOWFIELD, corner_radius=12)
             empty.pack(fill="x", pady=(28, 0))
             t.label(empty, "No folders yet", size=16, weight="bold").pack(anchor="w", padx=24, pady=(22, 4))
-            t.label(empty, "Add the folder where you keep invoice PDFs. The app reads them, you check the values, "
+            t.label(empty, "Add the folder where you keep invoices (PDFs or photos). The app reads them, you check the values, "
                            "and everything is renamed and kept here for the Excel later.",
                     size=14, color=t.LICHEN, wraplength=760).pack(anchor="w", padx=24, pady=(0, 22))
             return
@@ -144,7 +144,7 @@ class HomeScreen(ctk.CTkFrame):
                       text_color=t.EVERGREEN, font=t.font(13, "bold")).pack(side="right", padx=(0, 8))
 
     def _add(self):
-        folder = filedialog.askdirectory(title="Choose a folder with invoice PDFs")
+        folder = filedialog.askdirectory(title="Choose a folder with invoices")
         if folder:
             history.add_project(folder)
             self.on_open_folder(os.path.abspath(folder))

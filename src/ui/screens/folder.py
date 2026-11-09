@@ -31,7 +31,7 @@ class FolderScreen(ctk.CTkFrame):
         info.pack(side="left", fill="x", expand=True)
         t.label(info, os.path.basename(path) or path, size=15, weight="bold").pack(anchor="w")
         t.label(info, nice_path(path, 4), size=12, color=t.LICHEN).pack(anchor="w")
-        self.btn_main = t.primary_button(bar, "Checking for new PDFs…", command=self._review, height=38, size=13,
+        self.btn_main = t.primary_button(bar, "Checking for new files…", command=self._review, height=38, size=13,
                                          state="disabled")
         self.btn_main.pack(side="right", padx=(10, 24))
         self.btn_export = t.secondary_button(bar, "Export to Excel", command=self._export)
@@ -63,7 +63,7 @@ class FolderScreen(ctk.CTkFrame):
         if not rows:
             self.empty = t.label(main, "No invoices read in this folder yet.", size=14, color=t.LICHEN)
             self.empty.place(relx=0.5, rely=0.5, anchor="center")
-        t.label(main, "Double-click a row to open the PDF.", size=12, color=t.LICHEN).pack(anchor="w", pady=(8, 0))
+        t.label(main, "Double-click a row to open the file.", size=12, color=t.LICHEN).pack(anchor="w", pady=(8, 0))
 
         # --- Side: runs ---
         t.eyebrow(side, "Runs").pack(anchor="w")
@@ -134,9 +134,10 @@ class FolderScreen(ctk.CTkFrame):
         if n:
             mid = settings.load().get("model") or models.default_model()
             cost = models.cost_per_invoice(mid)
-            self.btn_main.configure(text=f"Read {n} new PDF{'s' if n != 1 else ''}", state="normal")
+            label = f"Read {n} new file{'s' if n != 1 else ''}"
             if cost:
-                self.btn_main.configure(text=f"Read {n} new PDF{'s' if n != 1 else ''} · ~€{max(0.01, n * cost * self.eur_rate):.2f}")
+                label += f" · ~€{max(0.01, n * cost * self.eur_rate):.2f}"
+            self.btn_main.configure(text=label, state="normal")
         else:
             self.btn_main.configure(text="Review & rename", state="normal")
 

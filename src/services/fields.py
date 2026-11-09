@@ -213,7 +213,8 @@ def build_filename(values, original_filename, fields, filename_keys, separator):
         original = __import__("os").path.splitext(original_filename)[0]
         joiner = "_" if separator == " " else separator
         name = f"{name}{joiner}{original}" if name else original
-    return f"{name}.pdf" if name else None
+    ext = __import__("os").path.splitext(original_filename)[1].lower() or ".pdf"
+    return f"{name}{ext}" if name else None
 
 
 def parse_filename(filename, fields, filename_keys, separator):

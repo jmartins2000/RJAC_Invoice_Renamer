@@ -202,7 +202,8 @@ def set_destination(path, dest):
 def new_pdfs(path):
     """PDF files in the folder that have never been read (checked by name, then by contents)."""
     try:
-        names = [f for f in os.listdir(path) if f.lower().endswith(".pdf") and not f.startswith(".")]
+        from src.services.file_types import list_invoices
+        names = list_invoices(path)
     except OSError:
         return []
     with _lock:
