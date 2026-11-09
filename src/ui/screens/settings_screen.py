@@ -17,7 +17,7 @@ def masked(key):
 
 
 class SettingsScreen(ctk.CTkFrame):
-    def __init__(self, master, on_back, on_update_found, eur_rate=0.92):
+    def __init__(self, master, on_back, on_update_found, on_fields, eur_rate=0.92):
         super().__init__(master, fg_color=t.SNOW, corner_radius=0)
         self.on_update_found = on_update_found
         self.eur_rate = eur_rate
@@ -78,6 +78,14 @@ class SettingsScreen(ctk.CTkFrame):
         t.divider(col).pack(fill="x")
         self.model_infos = []
         background.run(self, lambda: models.available(key_store.get_api_key()), self._models_loaded)
+
+        # --- Fields ---
+        from src.services import fields as fieldmod
+        on = [f.label for f in fieldmod.load() if f.enabled]
+        sec = self._section(col, "Fields", "Reading: " + ", ".join(on))
+        sec.sub.configure(wraplength=480)
+        t.secondary_button(sec, "Edit fields", command=on_fields, width=110).pack(side="right")
+        t.divider(col).pack(fill="x")
 
         # --- Updates ---
         sec = self._section(col, "Updates", f"Version {__version__}")

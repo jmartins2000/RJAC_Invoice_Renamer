@@ -17,7 +17,7 @@ class FileManager:
             delete_original (bool): Whether to delete the source file after copying
             
         Returns:
-            bool: True if successful, False otherwise
+            str | None: the new path if successful, None otherwise
         """
         try:
             # Ensure destination exists
@@ -30,6 +30,8 @@ class FileManager:
                 clean_name += '.pdf'
                 
             dest_path = os.path.join(dest_folder, clean_name)
+            if os.path.abspath(dest_path) == os.path.abspath(source_path):
+                return dest_path  # already has this name
             
             # Handle duplicate names (append counter)
             counter = 1
@@ -47,11 +49,11 @@ class FileManager:
                 os.remove(source_path)
                 print(f"  Deleted original: {source_path}")
                 
-            return True
-            
+            return dest_path
+
         except Exception as e:
             print(f"Error renaming file {source_path}: {e}")
-            return False
+            return None
 
     @staticmethod
     def _sanitize_filename(filename):

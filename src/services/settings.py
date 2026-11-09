@@ -9,7 +9,9 @@ APP_DIR_NAME = "RJAC Invoice Renamer"
 _lock = threading.Lock()
 
 DEFAULTS = {
-    "filename_fields": {"date": True, "value": True, "invoice_number": True, "supplier": True, "original": False},
+    "fields": None,             # list of field definitions (see services/fields.py); None = defaults
+    "separator": " ~ ",
+    "filename_original": False,  # append the original filename
     "delete_original": True,
     "last_source": None,
     "model": None,  # None = the catalog's default
@@ -18,6 +20,9 @@ DEFAULTS = {
 
 
 def _dir():
+    if os.environ.get("RJAC_DATA_DIR"):  # used by tests
+        os.makedirs(os.environ["RJAC_DATA_DIR"], exist_ok=True)
+        return os.environ["RJAC_DATA_DIR"]
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or os.path.expanduser("~")
     elif sys.platform == "darwin":
@@ -39,7 +44,6 @@ def load():
         with open(_path(), encoding="utf-8") as f:
             stored = json.load(f)
         data.update({k: v for k, v in stored.items() if k in DEFAULTS})
-        data["filename_fields"] = {**DEFAULTS["filename_fields"], **(stored.get("filename_fields") or {})}
     except (OSError, ValueError):
         pass
     return data

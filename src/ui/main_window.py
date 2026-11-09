@@ -12,7 +12,10 @@ from src.services import settings, updater
 from src.services.currency_converter import CurrencyConverter
 from src.ui import background, theme as t
 from src.ui.dialogs import UpdateDialog
+from src.services import models
 from src.ui.screens.done import DoneScreen
+from src.ui.screens.fields_screen import FieldsScreen
+from src.ui.screens.history_screen import HistoryScreen
 from src.ui.screens.review import ReviewScreen
 from src.ui.screens.settings_screen import SettingsScreen
 from src.ui.screens.setup import SetupScreen
@@ -34,6 +37,7 @@ class MainWindow(ctk.CTk):
         self.update_info = None
         self.eur_rate = 0.92
         threading.Thread(target=self._fetch_rate, daemon=True).start()
+        models.warm()
 
         if key_store.get_api_key():
             self.show_setup()
@@ -66,23 +70,29 @@ class MainWindow(ctk.CTk):
 
     def show_setup(self):
         screen = SetupScreen(self, on_start=self.show_review, on_settings=self.show_settings,
-                             eur_rate=self.eur_rate)
+                             on_history=self.show_history, eur_rate=self.eur_rate)
         self._show(screen)
         if self.update_info:
             screen.show_update(self.update_info, self._open_update)
 
     def show_settings(self):
         self._show(SettingsScreen(self, on_back=self.show_setup, on_update_found=self._update_found,
-                                  eur_rate=self.eur_rate))
+                                  on_fields=self.show_fields, eur_rate=self.eur_rate))
 
-    def show_review(self, source, dest, delete_original, fields):
+    def show_fields(self):
+        self._show(FieldsScreen(self, on_back=self.show_settings))
+
+    def show_history(self):
+        self._show(HistoryScreen(self, on_back=self.show_setup,
+                                 on_open_folder=lambda folder: self.show_review(folder, folder, back=self.show_history)))
+
+    def show_review(self, source, dest, back=None):
         key = key_store.get_api_key()
         if not key:
             self._show(WelcomeScreen(self, on_done=self.show_setup))
             return
         self._show(ReviewScreen(self, api_key=key, source_folder=source, dest_folder=dest,
-                                delete_original=delete_original, filename_fields=fields,
-                                on_back=self.show_setup, on_done=self.show_done))
+                                on_back=back or self.show_setup, on_done=self.show_done))
 
     def show_done(self, renamed, skipped, failed, corrected, cost_usd, invoices, dest_folder, export):
         settings.add_usage(invoices, cost_usd)

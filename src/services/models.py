@@ -10,6 +10,7 @@ import datetime
 import json
 import os
 import re
+import threading
 from dataclasses import dataclass
 
 import requests
@@ -28,6 +29,15 @@ _catalog = None
 _live = None
 
 
+def _on_ui_thread():
+    return threading.current_thread() is threading.main_thread()
+
+
+def warm():
+    """Download catalog and prices in the background at startup (see main_window)."""
+    threading.Thread(target=lambda: (catalog(), live_prices()), daemon=True).start()
+
+
 def live_prices():
     """{model_id: (input, output)} USD per 1M tokens from LiteLLM; cached copy if offline."""
     global _live
@@ -35,6 +45,12 @@ def live_prices():
         return _live
     from src.services.settings import _dir
     cache = os.path.join(_dir(), "live_prices.json")
+    if _on_ui_thread():  # never block the window on the network: use the disk cache for now
+        try:
+            with open(cache, encoding="utf-8") as f:
+                return {k: tuple(v) for k, v in json.load(f).items()}
+        except Exception:
+            return {}
     data = None
     try:
         r = requests.get(LIVE_PRICES_URL, timeout=5)
@@ -59,6 +75,9 @@ def live_prices():
 def catalog():
     """Remote catalog if reachable, else bundled. Cached for the session."""
     global _catalog
+    if _catalog is None and _on_ui_thread():
+        with open(get_resource_path(os.path.join("src", "data", "model_catalog.json")), encoding="utf-8") as f:
+            return json.load(f)  # bundled copy; the background warm-up fetches the latest
     if _catalog is None:
         try:
             r = requests.get(CATALOG_URL, timeout=4)

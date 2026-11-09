@@ -4,17 +4,18 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
-from src.services import settings
+from src.services import fields as fieldmod
+from src.services import models, settings
 from src.ui import icons, theme as t
 
-FIELDS = [("date", "Date"), ("value", "Total"), ("invoice_number", "Invoice no."),
-          ("supplier", "Supplier"), ("original", "Original name")]
-EXAMPLE = {"date": "2026.10.06", "value": "60000.00", "invoice_number": "FT A_29",
-           "supplier": "Quociente Invencível Lda", "original": "Fatura FT A-29"}
+EXAMPLE = {"date": "2026-10-06", "total_value": 60000.0, "invoice_number": "FT A/29",
+           "supplier": "Quociente Invencível Lda", "supplier_nif": "517875845", "net_amount": 48780.49,
+           "vat_amount": 11219.51, "vat_rate": "23%", "currency": "EUR"}
+EXAMPLE_ORIGINAL = "Fatura FT A-29.pdf"
 
 
 def shorten(text, limit=52):
-    """Middle-ellipsis for long paths: 'C:\\Users\\…\\Faturas'."""
+    """Middle-ellipsis for long paths."""
     return text if len(text) <= limit else f"{text[:limit // 2 - 1]}…{text[-(limit // 2):]}"
 
 
@@ -44,7 +45,7 @@ class FolderCard(ctk.CTkFrame):
         self.sub.pack(anchor="w", fill="x", pady=(2, 0))
         for w in (self, self.icon, text, self.title, self.sub, self.action):
             w.bind("<Button-1>", lambda _: self.command())
-            w.configure(cursor="hand2")
+            w.configure(cursor=t.HAND)
 
     def set(self, title, sub):
         self.title.configure(text=title)
@@ -52,12 +53,14 @@ class FolderCard(ctk.CTkFrame):
 
 
 class SetupScreen(ctk.CTkFrame):
-    def __init__(self, master, on_start, on_settings, eur_rate=0.92):
+    def __init__(self, master, on_start, on_settings, on_history, eur_rate=0.92):
         super().__init__(master, fg_color=t.SNOW, corner_radius=0)
         self.on_start = on_start
         self.eur_rate = eur_rate
         prefs = settings.load()
-        self.fields = dict(prefs["filename_fields"])
+        self.fields = fieldmod.load()
+        self.include_original = bool(prefs.get("filename_original"))
+        self.separator = prefs.get("separator") or fieldmod.DEFAULT_SEPARATOR
         self.source = prefs["last_source"] if prefs["last_source"] and os.path.isdir(prefs["last_source"]) else None
         self.dest = None
 
@@ -69,7 +72,8 @@ class SetupScreen(ctk.CTkFrame):
         ctk.CTkButton(bar, text="Settings", image=icons.line_icon("gear", 16, stroke=1.8), compound="left",
                       command=on_settings, height=36, width=0, corner_radius=8, fg_color=t.SNOW,
                       hover_color=t.SNOWFIELD, border_width=1, border_color=t.FROST, text_color=t.INK,
-                      font=t.font(13)).pack(side="right", padx=32)
+                      font=t.font(13)).pack(side="right", padx=(10, 32))
+        t.secondary_button(bar, "History", command=on_history, height=36).pack(side="right")
         self.update_slot = ctk.CTkFrame(bar, fg_color="transparent", width=1, height=36)
         self.update_slot.pack(side="right")
         t.divider(self).pack(fill="x")
@@ -77,13 +81,11 @@ class SetupScreen(ctk.CTkFrame):
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=64, pady=(44, 36))
 
-        # --- Heading ---
         ctk.CTkLabel(body, text="Rename a folder of invoices", font=t.display(30), text_color=t.INK,
                      anchor="w").pack(anchor="w")
         t.label(body, "Gemini reads each PDF, you check the values, then everything is renamed in one go.",
                 size=15, color=t.LICHEN).pack(anchor="w", pady=(6, 32))
 
-        # --- Footer (packed before columns so it keeps its place at the bottom) ---
         footer = ctk.CTkFrame(body, fg_color="transparent")
         footer.pack(side="bottom", fill="x")
         t.divider(footer).pack(fill="x", pady=(0, 24))
@@ -98,55 +100,50 @@ class SetupScreen(ctk.CTkFrame):
         cols.pack(fill="both", expand=True)
         left = ctk.CTkFrame(cols, fg_color="transparent", width=480)
         left.pack(side="left", fill="y", anchor="n")
-        left.pack_propagate(False)  # fixed column width; long paths are shortened instead
+        left.pack_propagate(False)
         right = ctk.CTkFrame(cols, fg_color="transparent")
         right.pack(side="left", fill="both", expand=True, padx=(48, 0), anchor="n")
 
         # --- Folders ---
         t.eyebrow(left, "1 · Invoices folder").pack(anchor="w", pady=(0, 10))
         self.card_source = FolderCard(left, True, "folder", "Choose…", self._choose_source)
-        self.card_source.configure(width=480)
         self.card_source.pack(fill="x")
         t.eyebrow(left, "2 · Save renamed files to").pack(anchor="w", pady=(28, 10))
         self.card_dest = FolderCard(left, False, "folder_down", "Choose…", self._choose_dest)
         self.card_dest.pack(fill="x")
-
-        toggle = ctk.CTkFrame(left, fg_color="transparent")
-        toggle.pack(anchor="w", pady=(28, 0), fill="x")
-        self.delete_var = ctk.BooleanVar(value=prefs["delete_original"])
-        t.Toggle(toggle, self.delete_var,
-                 command=lambda: settings.save(delete_original=self.delete_var.get())).pack(side="left", padx=(2, 0))
-        tt = ctk.CTkFrame(toggle, fg_color="transparent")
-        tt.pack(side="left", padx=(14, 0))
-        t.label(tt, "Delete the originals after renaming", size=14, weight="normal").pack(anchor="w")
-        t.label(tt, "Only after each copy is saved safely", size=13, color=t.LICHEN).pack(anchor="w")
+        t.label(left, "Invoices read before are recognised and not sent to Gemini again.",
+                size=13, color=t.LICHEN, wraplength=470).pack(anchor="w", pady=(20, 0))
 
         # --- Filename builder ---
         t.eyebrow(right, "3 · New filename").pack(anchor="w", pady=(0, 10))
         card = ctk.CTkFrame(right, fg_color=t.SNOW, corner_radius=12, border_width=1, border_color=t.FROST)
         card.pack(fill="x")
-        chips = ctk.CTkFrame(card, fg_color="transparent")
-        chips.pack(fill="x", padx=24, pady=(24, 0))
-        self.chips = {}
-        rows = [ctk.CTkFrame(chips, fg_color="transparent") for _ in range(2)]
-        for r in rows:
-            r.pack(anchor="w")
-        for i, (key, text) in enumerate(FIELDS):
-            b = ctk.CTkButton(rows[i // 4], text=text, height=34, width=0, corner_radius=17, font=t.font(13),
-                              border_width=1, command=lambda k=key: self._toggle(k))
-            b.pack(side="left", padx=(0, 8), pady=(0, 8))
-            self.chips[key] = b
+        self.chips_box = ctk.CTkFrame(card, fg_color="transparent")
+        self.chips_box.pack(fill="x", padx=24, pady=(24, 0))
+
+        sep_row = ctk.CTkFrame(card, fg_color="transparent")
+        sep_row.pack(fill="x", padx=24, pady=(6, 0))
+        t.label(sep_row, "Separator", size=13, color=t.LICHEN).pack(side="left", padx=(0, 12))
+        self.sep_labels = {" ~ ": "~", " - ": "-", " _ ": "_", " ": "Space"}
+        self.sep_menu = ctk.CTkSegmentedButton(
+            sep_row, values=list(self.sep_labels.values()), command=self._set_separator, height=30,
+            font=t.font(13), fg_color=t.SNOWFIELD, selected_color=t.EVERGREEN,
+            selected_hover_color=t.EVERGREEN_HOVER, unselected_color=t.SNOWFIELD,
+            unselected_hover_color=t.FROST, text_color=t.INK, corner_radius=8)
+        self.sep_menu.pack(side="left")
+        self.sep_menu.set(self.sep_labels.get(self.separator, "~"))
+
         ex = ctk.CTkFrame(card, fg_color=t.SNOWFIELD, corner_radius=10)
-        ex.pack(fill="x", padx=24, pady=(14, 0))
+        ex.pack(fill="x", padx=24, pady=(16, 0))
         t.label(ex, "Example", size=12, color=t.LICHEN).pack(anchor="w", padx=20, pady=(16, 6))
         self.lbl_example = ctk.CTkLabel(ex, text="", font=t.mono(14), text_color=t.EVERGREEN,
                                         anchor="w", justify="left", wraplength=380)
         self.lbl_example.pack(anchor="w", fill="x", padx=20, pady=(0, 16))
-        t.label(card, "Click a field to add or remove it. You'll be able to correct every value before "
-                      "anything is renamed.", size=13, color=t.LICHEN, wraplength=400).pack(
-            anchor="w", fill="x", padx=24, pady=(18, 24))
+        t.label(card, "Click a field to add or remove it. Add more fields (like NIF or VAT) in Settings.",
+                size=13, color=t.LICHEN, wraplength=400).pack(anchor="w", fill="x", padx=24, pady=(18, 24))
         right.bind("<Configure>", lambda e: self.lbl_example.configure(wraplength=max(200, e.width - 90)))
 
+        self._build_chips()
         self._refresh()
 
     # --- Update notice in the top bar ---
@@ -156,6 +153,48 @@ class SetupScreen(ctk.CTkFrame):
         ctk.CTkButton(self.update_slot, text=f"Update to {info.version}", command=on_click, height=36,
                       width=0, corner_radius=8, fg_color=t.SELECTED, hover_color="#DCE9DE",
                       text_color=t.EVERGREEN, font=t.font(13, "bold")).pack(side="right", padx=(0, 10))
+
+    # --- Filename chips ---
+    def _build_chips(self):
+        for w in self.chips_box.winfo_children():
+            w.destroy()
+        self.chips = {}
+        items = [(f.key, f.label) for f in self.fields if f.enabled] + [(fieldmod.ORIGINAL, "Original name")]
+        row, width = None, 0
+        for key, text in items:
+            if row is None or width > 330:
+                row = ctk.CTkFrame(self.chips_box, fg_color="transparent")
+                row.pack(anchor="w")
+                width = 0
+            b = ctk.CTkButton(row, text=text, height=34, width=0, corner_radius=17, font=t.font(13),
+                              border_width=1, command=lambda k=key: self._toggle(k))
+            b.pack(side="left", padx=(0, 8), pady=(0, 8))
+            width += len(text) * 8 + 40
+            self.chips[key] = b
+
+    def _is_on(self, key):
+        if key == fieldmod.ORIGINAL:
+            return self.include_original
+        return next(f.in_filename for f in self.fields if f.key == key)
+
+    def _toggle(self, key):
+        if key == fieldmod.ORIGINAL:
+            self.include_original = not self.include_original
+        else:
+            for f in self.fields:
+                if f.key == key:
+                    f.in_filename = not f.in_filename
+        if not fieldmod.filename_keys(self.fields, self.include_original):
+            self._toggle(key)  # keep at least one
+            return
+        fieldmod.save(self.fields)
+        settings.save(filename_original=self.include_original)
+        self._refresh()
+
+    def _set_separator(self, label):
+        self.separator = next(k for k, v in self.sep_labels.items() if v == label)
+        settings.save(separator=self.separator)
+        self._refresh()
 
     # --- Actions ---
     def _choose_source(self):
@@ -173,16 +212,9 @@ class SetupScreen(ctk.CTkFrame):
             self.dest = folder
             self._refresh()
 
-    def _toggle(self, key):
-        self.fields[key] = not self.fields[key]
-        if not any(self.fields.values()):
-            self.fields[key] = True  # at least one field
-        settings.save(filename_fields=self.fields)
-        self._refresh()
-
     def _start(self):
         if self.source and count_pdfs(self.source):
-            self.on_start(self.source, self.dest or self.source, self.delete_var.get(), dict(self.fields))
+            self.on_start(self.source, self.dest or self.source)
         else:
             self._choose_source()
 
@@ -200,25 +232,25 @@ class SetupScreen(ctk.CTkFrame):
             self.card_dest.set("Same folder", "Renamed files go next to the originals")
 
         for key, b in self.chips.items():
-            on = self.fields[key]
-            label = dict(FIELDS)[key]
+            on = self._is_on(key)
+            label = "Original name" if key == fieldmod.ORIGINAL else next(f.label for f in self.fields if f.key == key)
             b.configure(text=label if on else f"+ {label}",
                         fg_color=t.EVERGREEN if on else t.SNOW,
                         hover_color=t.EVERGREEN_HOVER if on else t.SNOWFIELD,
                         border_color=t.EVERGREEN if on else t.FIELD_BORDER,
                         text_color=t.SNOW if on else t.LICHEN)
-        parts = [EXAMPLE[k] for k in ("date", "value", "invoice_number", "supplier") if self.fields[k]]
-        name = " ".join(parts)
-        if self.fields["original"]:
-            name = f"{name}_{EXAMPLE['original']}" if name else EXAMPLE["original"]
-        self.lbl_example.configure(text=f"{name}.pdf")
+        example = dict(EXAMPLE)
+        for f in self.fields:
+            example.setdefault(f.key, f.label)
+        name = fieldmod.build_filename(example, EXAMPLE_ORIGINAL, self.fields,
+                                       fieldmod.filename_keys(self.fields, self.include_original), self.separator)
+        self.lbl_example.configure(text=name or "")
 
+        mid = settings.load().get("model") or models.default_model()
         if n:
             self.btn_start.configure(text=f"Read {n} invoice{'s' if n != 1 else ''}", state="normal")
-            from src.services import models
-            mid = settings.load().get("model") or models.default_model()
             cost = models.cost_per_invoice(mid)
-            est = f"About €{max(0.01, n * cost * self.eur_rate):.2f} for {n} invoices · " if cost else ""
+            est = f"New invoices: about €{max(0.01, n * cost * self.eur_rate):.2f} for {n} · " if cost else ""
             self.lbl_estimate.configure(text=f"{est}{models.label(mid)}")
         else:
             self.btn_start.configure(text="Choose a folder")

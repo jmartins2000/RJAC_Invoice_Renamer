@@ -33,6 +33,11 @@ jobs:
           Start-Sleep -Seconds 15
           if ($p.HasExited) { throw "App exited early with code $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
+      - name: UI smoke test (every screen, fake invoices, screenshots)
+        run: python tools/ui_smoke.py ui-shots-windows
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: ui-screenshots-windows, path: ui-shots-windows }
       - uses: actions/upload-artifact@v4
         with: { name: windows-installer, path: "dist/*.exe" }
 
@@ -44,6 +49,11 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install -r requirements.txt
       - run: ./build_tools/build_mac.sh
+      - name: UI smoke test (every screen, fake invoices, screenshots)
+        run: python tools/ui_smoke.py ui-shots-mac
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: ui-screenshots-mac, path: ui-shots-mac }
       - uses: actions/upload-artifact@v4
         with: { name: mac-dmg, path: "dist/*.dmg" }
 

@@ -1,69 +1,49 @@
+"""Writes invoice rows to an .xlsx with the user's chosen columns."""
+import datetime
+
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
-import os
+from openpyxl.styles import Alignment, Font, PatternFill
+
 
 class ExcelExporter:
-    """Service to export invoice data to Excel spreadsheet"""
-    
     @staticmethod
-    def export_to_excel(data_list, output_path):
-        """
-        Export invoice data to an Excel file.
-        
-        Args:
-            data_list: List of dicts with keys: 'date', 'original_filename', 'supplier', 'invoice_number', 'total_value'
-            output_path: Full path to output .xlsx file
-            
-        Returns:
-            bool: True if successful
-        """
+    def export(rows, field_defs, output_path, extra_columns=(("File", "file_name"), ("Folder", "folder"))):
+        """rows: dicts with 'values' (field key → value) plus the extra column keys."""
         try:
+            cols = [f for f in field_defs if f.enabled and f.in_excel]
             wb = Workbook()
             ws = wb.active
-            ws.title = "Invoice Data"
-            
-            # Headers - Order: Date, Original Name, Supplier, Invoice Number, Value
-            headers = ["Date", "Original Name", "Supplier", "Invoice Number", "Value"]
-            ws.append(headers)
-            
-            # Style headers
-            header_fill = PatternFill(start_color="3d9d46", end_color="3d9d46", fill_type="solid")
-            header_font = Font(bold=True, color="FFFFFF")
-            
+            ws.title = "Invoices"
+            ws.append([f.label for f in cols] + [name for name, _ in extra_columns])
             for cell in ws[1]:
-                cell.fill = header_fill
-                cell.font = header_font
+                cell.fill = PatternFill(start_color="204E27", end_color="204E27", fill_type="solid")
+                cell.font = Font(bold=True, color="FFFFFF")
                 cell.alignment = Alignment(horizontal="center", vertical="center")
-            
-            # Data rows - Order: Date, Original Name, Supplier, Invoice Number, Value
-            for item in data_list:
-                ws.append([
-                    item.get('date', ''),
-                    item.get('original_filename', ''),
-                    item.get('supplier', ''),
-                    item.get('invoice_number', ''),
-                    item.get('total_value', '')
-                ])
-            
-            # Auto-adjust column widths
+            for row in rows:
+                vals = row.get("values", {})
+                out = []
+                for f in cols:
+                    v = vals.get(f.key)
+                    if f.type == "date" and v:
+                        try:
+                            v = datetime.date.fromisoformat(str(v)[:10])
+                        except ValueError:
+                            pass
+                    out.append(v if v not in (None, "") else None)
+                ws.append(out + [row.get(k, "") for _, k in extra_columns])
+            for i, f in enumerate(cols, start=1):
+                for cell in ws.iter_cols(min_col=i, max_col=i, min_row=2):
+                    for c in cell:
+                        if f.type == "date":
+                            c.number_format = "yyyy-mm-dd"
+                        elif f.type == "number":
+                            c.number_format = "#,##0.00"
             for column in ws.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 50)
-                ws.column_dimensions[column_letter].width = adjusted_width
-            
-            # Save
+                width = max((len(str(c.value)) for c in column if c.value is not None), default=8)
+                ws.column_dimensions[column[0].column_letter].width = min(width + 2, 50)
+            ws.freeze_panes = "A2"
             wb.save(output_path)
-            print(f"✓ Excel exported: {output_path}")
             return True
-            
         except Exception as e:
             print(f"Error exporting to Excel: {e}")
             return False
-

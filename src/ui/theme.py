@@ -19,6 +19,9 @@ AMBER_BG = "#FDF3E7"
 RED = "#B42318"         # error
 RED_BG = "#FDECEA"
 
+# Native pointing-hand cursor ("hand2" is an old-style hand on macOS)
+HAND = "pointinghand" if sys.platform == "darwin" else "hand2"
+
 if sys.platform == "darwin":
     SANS, MONO = "SF Pro Text", "Menlo"
     SANS_DISPLAY = "SF Pro Display"
@@ -106,7 +109,7 @@ class Toggle(ctk.CTkCanvas):
 
     def __init__(self, parent, variable, command=None, width=40, height=24):
         super().__init__(parent, width=width, height=height, highlightthickness=0, bd=0, bg=SNOW,
-                         cursor="hand2")
+                         cursor=HAND)
         self.var, self.command, self.w, self.h = variable, command, width, height
         self.bind("<Button-1>", self._click)
         self.var.trace_add("write", lambda *_: self._draw())

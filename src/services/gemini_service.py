@@ -6,7 +6,7 @@ import time
 
 from google import genai
 from google.genai import errors, types
-from pydantic import BaseModel, Field
+import json
 
 # Chosen with tools/eval_extraction.py (18/18 on the sample set, Nov 2026).
 DEFAULT_MODEL = "gemini-3.8-flash"
@@ -22,46 +22,19 @@ def _pricing(model):
     return models.price(model) or (2.00, 10.00)
 
 
-class InvoiceData(BaseModel):
-    is_invoice: bool = Field(
-        description="True only if the document is an invoice, receipt, credit note or similar billing document."
-    )
-    date: str = Field(description="Issue date as YYYY-MM-DD, or empty string if not present.")
-    total_value: float | None = Field(
-        description="Grand total actually charged (including taxes), or null if not present."
-    )
-    currency: str = Field(description="ISO 4217 currency code of the total, e.g. EUR, USD. Empty if unknown.")
-    supplier: str = Field(description="Name of the company issuing the document, or empty string.")
-    invoice_number: str = Field(description="Document identifier exactly as printed, or empty string.")
-
-
-PROMPT = """You are reading a single document that is usually a supplier invoice (often Portuguese).
-Extract the fields below. Only use information that is printed in THIS document.
-If a field is not present, return an empty string (or null for total_value). Never guess or invent values.
-
-- is_invoice: false if the document is not a billing document (e.g. a slide, letter, contract, statement).
-  When false, leave every other field empty.
-- date: the issue/invoice date ("Data", "Data de emissão", "Invoice date", "Date of issue"), as YYYY-MM-DD.
-  Prefer the issue date over due dates or service periods.
-- total_value: the grand total charged, as a number ("Total", "Total a pagar", "Amount due", "Total (EUR)").
-  Use a dot as the decimal separator (1.234,56 → 1234.56). For credit notes or refunds, use the positive amount.
-- currency: the currency of total_value.
-- supplier: the business that ISSUED the document (the seller), not the customer it is billed to.
-- invoice_number: the document's own identifier, e.g. labelled "Fatura", "Fatura-Recibo", "FR", "FT",
-  "Nº", "Invoice number", "Receipt number". Copy it exactly, keeping spaces, slashes and hyphens.
-  Do not return customer numbers, NIF/VAT numbers, order numbers or ATCUD codes.
-"""
-
-
 class GeminiService:
     """Extracts invoice fields from PDFs. Thread-safe; tracks token usage for cost display."""
 
-    def __init__(self, api_key, model=None):
+    def __init__(self, api_key, model=None, field_defs=None):
         self.client = genai.Client(api_key=api_key)
         if not model:
             from src.services import models, settings
             model = os.environ.get("RJAC_MODEL") or settings.load().get("model") or models.default_model()
         self.model = model
+        from src.services import fields as fieldmod
+        self.fields = field_defs or fieldmod.load()
+        self.schema = fieldmod.json_schema(self.fields)
+        self.prompt = fieldmod.prompt(self.fields)
         self._lock = threading.Lock()
         self.total_input_tokens = 0
         self.total_output_tokens = 0
@@ -106,10 +79,10 @@ class GeminiService:
         try:
             response = self.client.models.generate_content(
                 model=self.model,
-                contents=[pdf_part, PROMPT],
+                contents=[pdf_part, self.prompt],
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema=InvoiceData,
+                    response_schema=self.schema,
                     temperature=0,
                 ),
             )
@@ -129,10 +102,13 @@ class GeminiService:
                     usage.thoughts_token_count or 0
                 )
 
-        parsed = response.parsed
-        if parsed is None:
+        try:
+            data = json.loads(response.text or "")
+        except ValueError:
             raise ValueError("The AI returned an unreadable answer.")
-        return parsed.model_dump()
+        if not isinstance(data, dict):
+            raise ValueError("The AI returned an unreadable answer.")
+        return data
 
     def get_total_cost_usd(self):
         price_in, price_out = _pricing(self.model)
