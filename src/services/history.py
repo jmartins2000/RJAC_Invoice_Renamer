@@ -57,6 +57,8 @@ def _db():
             _conn.execute("UPDATE invoices SET project = folder")
         if "run_id" not in cols:
             _conn.execute("ALTER TABLE invoices ADD COLUMN run_id INTEGER")
+        if "hidden" not in {r[1] for r in _conn.execute("PRAGMA table_info(projects)")}:
+            _conn.execute("ALTER TABLE projects ADD COLUMN hidden INTEGER DEFAULT 0")
         _conn.commit()
     return _conn
 
@@ -87,7 +89,8 @@ def _row(row):
 
 def save(file_hash, values, status, path, model=None, original_name=None, project=None, run_id=None):
     """Insert or update. Never downgrades status (renamed > confirmed > read).
-    The project (source folder) and first run are kept from the first time it was seen."""
+    `project` is the folder being reviewed: an invoice belongs to the folder it was last reviewed in
+    (renaming it into another folder doesn't change that). Without a project, the old one is kept."""
     rank = {"read": 0, "confirmed": 1, "renamed": 2}
     clean = {k: v for k, v in values.items() if k not in ("error",)}
     with _lock:
@@ -106,7 +109,8 @@ def save(file_hash, values, status, path, model=None, original_name=None, projec
             str(clean.get("date") or "")[:10],
             model or (old["model"] if old else None),
             old["processed_at"] if old else _now(), _now(),
-            (old["project"] if old and old["project"] else project or os.path.dirname(os.path.abspath(path))),
+            (os.path.abspath(project) if project else
+             old["project"] if old and old["project"] else os.path.dirname(os.path.abspath(path))),
             old["run_id"] if old and old["run_id"] else run_id))
         db.commit()
 
@@ -144,6 +148,7 @@ def add_project(path):
     path = os.path.abspath(path)
     with _lock:
         _db().execute("INSERT OR IGNORE INTO projects (path, created_at) VALUES (?, ?)", (path, _now()))
+        _db().execute("UPDATE projects SET hidden=0 WHERE path=?", (path,))
         _db().commit()
     return path
 
@@ -151,7 +156,7 @@ def add_project(path):
 def remove_project(path):
     """Forget a folder (its invoices stay in the history, so nothing is re-read)."""
     with _lock:
-        _db().execute("DELETE FROM projects WHERE path=?", (path,))
+        _db().execute("UPDATE projects SET hidden=1 WHERE path=?", (path,))
         _db().commit()
 
 
@@ -167,11 +172,14 @@ def projects():
                    (SELECT COUNT(*) FROM runs r WHERE r.project = p.path) AS runs,
                    (SELECT MAX(started_at) FROM runs r WHERE r.project = p.path) AS last_run,
                    COALESCE((SELECT MAX(updated_at) FROM invoices i WHERE i.project = p.path), p.created_at) AS used
-            FROM projects p ORDER BY used DESC""").fetchall()
+            FROM projects p WHERE COALESCE(p.hidden, 0) = 0 ORDER BY used DESC""").fetchall()
     out = []
     for r in rows:
         d = dict(r)
         inv = query(folder=d["path"])
+        if not inv and not d["runs"] and not os.path.isdir(d["path"]):
+            remove_project(d["path"])  # gone from disk and nothing recorded: drop it
+            continue
         d["invoices"] = len(inv)
         d["total"] = sum(i["values"].get("total_value") or 0 for i in inv
                          if isinstance(i["values"].get("total_value"), (int, float)))

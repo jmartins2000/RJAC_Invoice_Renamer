@@ -103,6 +103,10 @@ class FolderScreen(ctk.CTkFrame):
         self.lbl_dest.pack(anchor="w", fill="x", pady=(8, 2))
         t.link_button(side, "Change", command=self._change_dest).pack(anchor="w")
         self._show_dest()
+        self.on_back = on_back
+        ctk.CTkButton(side, text="Remove from the list", height=28, width=0, corner_radius=6,
+                      fg_color="transparent", hover_color=t.RED_BG, text_color=t.LICHEN, font=t.font(12),
+                      command=self._remove).pack(side="bottom", anchor="w")
 
         if os.path.isdir(path):
             background.run(self, lambda: history.new_pdfs(path), self._new_counted)
@@ -136,6 +140,14 @@ class FolderScreen(ctk.CTkFrame):
                 self.btn_main.configure(text=f"Read {n} new PDF{'s' if n != 1 else ''} · ~€{max(0.01, n * cost * self.eur_rate):.2f}")
         else:
             self.btn_main.configure(text="Review folder", state="normal")
+
+    def _remove(self):
+        from tkinter import messagebox
+        if messagebox.askyesno("Remove folder", f"Remove \"{os.path.basename(self.path)}\" from your folders?\n\n"
+                               "No files are deleted, and invoices already read stay remembered (they won't be "
+                               "paid for again if you add the folder back)."):
+            history.remove_project(self.path)
+            self.on_back()
 
     def _review(self):
         self.on_review(self.path, bool(self.new))
