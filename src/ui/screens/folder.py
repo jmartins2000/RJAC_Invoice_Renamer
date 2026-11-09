@@ -15,7 +15,7 @@ from src.ui.table import InvoiceTable
 
 
 class FolderScreen(ctk.CTkFrame):
-    def __init__(self, master, path, on_back, on_review, on_customize, eur_rate=0.92):
+    def __init__(self, master, path, on_back, on_review, on_customize, on_efatura=None, eur_rate=0.92):
         super().__init__(master, fg_color=t.SNOW, corner_radius=0)
         self.path, self.on_review, self.eur_rate = path, on_review, eur_rate
         history.add_project(path)
@@ -107,6 +107,17 @@ class FolderScreen(ctk.CTkFrame):
         self.lbl_dest.pack(anchor="w", fill="x", pady=(8, 2))
         t.link_button(side, "Change", command=self._change_dest).pack(anchor="w")
         self._show_dest()
+
+        # --- Side: e-Fatura ---
+        if on_efatura:
+            from src.services import efatura
+            t.divider(side).pack(fill="x", pady=20)
+            t.eyebrow(side, "e-Fatura").pack(anchor="w")
+            n_ef = efatura.stored_count(path)
+            t.label(side, f"{n_ef} invoices imported from the portal" if n_ef else
+                    "Compare with the AT's list to find missing receipts.", size=13, color=t.LICHEN,
+                    wraplength=280).pack(anchor="w", fill="x", pady=(8, 2))
+            t.link_button(side, "Compare with e-Fatura", command=on_efatura).pack(anchor="w")
         self.on_back = on_back
         ctk.CTkButton(side, text="Remove from the list", height=28, width=0, corner_radius=6,
                       fg_color="transparent", hover_color=t.RED_BG, text_color=t.LICHEN, font=t.font(12),

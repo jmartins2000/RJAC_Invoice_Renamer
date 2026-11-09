@@ -14,6 +14,7 @@ from src.ui.feedback_dialog import feedback_button
 from src.ui import background, theme as t
 from src.ui.dialogs import UpdateDialog
 from src.ui.screens.done import DoneScreen
+from src.ui.screens.efatura_screen import EfaturaScreen
 from src.ui.screens.fields_screen import FieldsScreen
 from src.ui.screens.folder import FolderScreen
 from src.ui.screens.home import HomeScreen
@@ -90,7 +91,13 @@ class MainWindow(ctk.CTk):
         self.context_folder = path
         self._show(FolderScreen(self, path, on_back=self.show_home, on_review=self.show_review,
                                 on_customize=lambda: self.show_fields(back=lambda: self.show_folder(path)),
+                                on_efatura=lambda: self.show_efatura(path),
                                 eur_rate=self.eur_rate), lambda: self.show_folder(path))
+
+    def show_efatura(self, path):
+        self.context_folder = path
+        self._show(EfaturaScreen(self, path, on_back=lambda: self.show_folder(path)),
+                   lambda: self.show_efatura(path))
 
     def show_review(self, path, _only_new=False):
         key = key_store.get_api_key()

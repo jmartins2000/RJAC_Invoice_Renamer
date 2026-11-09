@@ -271,6 +271,22 @@ try:
     if len(fs.rows) != 6:
         errors.append(f"custom range should show 6 invoices, got {len(fs.rows)}")
     shot("6b_folder_custom_range")
+    # e-Fatura: import an export for this client and compare
+    from src.services import efatura as ef
+    _exp = os.path.join(work, "efatura_export.csv")
+    with open(_exp, "w", encoding="cp1252", newline="") as _f:
+        _f.write("Data Emissão;NIF Emitente;Nome Emitente;Tipo;Nº Fatura;Valor Total\n"
+                 "06-10-2026;517875845;Quociente Invencível Lda;Fatura;FT A/29;60.000,00\n"
+                 "14-10-2026;503504564;EDP Comercial;Fatura;FT 2026/88123;84,12\n"
+                 "20-10-2026;500000009;Fornecedor Sem Talão;Fatura;FT X/1;12,30\n")
+    ef.import_files(inv, [_exp])
+    app.show_efatura(inv); pump(1.5)
+    _r = app.screen.result
+    print("e-Fatura comparison:", {k: len(v) for k, v in _r.items()})
+    if len(_r["matched"]) < 2 or len(_r["missing"]) != 1:
+        errors.append(f"e-Fatura comparison wrong: { {k: len(v) for k, v in _r.items()} }")
+    shot("6c_efatura_missing")
+    app.screen._show("matched"); pump(0.5); shot("6d_efatura_matched")
     app.show_fields(); shot("7_fields")
     app.screen.e_sep.delete(0, "end"); app.screen.e_sep.insert(0, " / "); app.screen._sep_changed()
     shot("7b_fields_bad_separator")

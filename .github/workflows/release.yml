@@ -6,7 +6,7 @@ name: Build & Release
 on:
   push:
     tags: ["v*"]
-    branches: ["main"]   # test builds on every push to main (no release is published)
+    branches: ["**"]   # test builds on every branch push (no release is published; free for public repos)
   workflow_dispatch:
 
 permissions:
