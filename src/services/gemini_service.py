@@ -1,5 +1,4 @@
 """Invoice data extraction with Gemini (google-genai SDK)."""
-import datetime
 import os
 import random
 import threading
@@ -17,13 +16,10 @@ INLINE_LIMIT_BYTES = 18 * 1024 * 1024
 
 MAX_ATTEMPTS = 5
 
-# USD per 1M tokens (input, output). Source: https://aistudio.google.com/docs/pricing (Nov 2026)
 def _pricing(model):
-    if model == "gemini-3.8-flash":
-        return (0.75, 3.75) if datetime.date.today() < datetime.date(2027, 1, 1) else (1.50, 7.50)
-    if model == "gemini-3.5-flash-lite":
-        return (0.30, 2.50)
-    return (1.50, 10.00)  # conservative fallback for other models
+    """USD per 1M tokens (input, output) from the model catalog; conservative fallback if unknown."""
+    from src.services import models
+    return models.price(model) or (2.00, 10.00)
 
 
 class InvoiceData(BaseModel):
@@ -62,7 +58,10 @@ class GeminiService:
 
     def __init__(self, api_key, model=None):
         self.client = genai.Client(api_key=api_key)
-        self.model = model or os.environ.get("RJAC_MODEL") or DEFAULT_MODEL
+        if not model:
+            from src.services import models, settings
+            model = os.environ.get("RJAC_MODEL") or settings.load().get("model") or models.default_model()
+        self.model = model
         self._lock = threading.Lock()
         self.total_input_tokens = 0
         self.total_output_tokens = 0

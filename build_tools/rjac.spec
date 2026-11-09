@@ -7,7 +7,8 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 VERSION = re.search(r'__version__ = "(.+?)"', open(os.path.join(ROOT, "src", "version.py")).read()).group(1)
 NAME = "RJAC Invoice Renamer"
 
-datas = [(os.path.join(ROOT, "assets"), "assets")]
+datas = [(os.path.join(ROOT, "assets"), "assets"),
+         (os.path.join(ROOT, "src", "data"), os.path.join("src", "data"))]
 binaries, hiddenimports = [], ["keyring.backends.Windows", "keyring.backends.macOS"]
 for pkg in ("customtkinter",):
     d, b, h = collect_all(pkg); datas += d; binaries += b; hiddenimports += h

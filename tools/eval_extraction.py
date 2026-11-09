@@ -40,6 +40,8 @@ def main():
     ap.add_argument("--model")
     ap.add_argument("--legacy", action="store_true")
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--update-catalog", action="store_true",
+                    help="write the score and measured tokens for this model into model_catalog.json")
     args = ap.parse_args()
 
     from dotenv import load_dotenv
@@ -82,6 +84,16 @@ def main():
     print(f"  {'files fully correct':22s} {all_ok}/{len(truth)}")
     for f, bad, got in failures:
         print(f"  ✗ {f}: wrong {bad} -> {got}")
+
+    if args.update_catalog and not args.legacy:
+        n = len(truth)
+        for path in (os.path.join(ROOT, "model_catalog.json"), os.path.join(ROOT, "src", "data", "model_catalog.json")):
+            cat = json.load(open(path, encoding="utf-8"))
+            entry = cat["models"].setdefault(svc.model, {})
+            entry["tested"] = f"{all_ok}/{n}"
+            entry["tokens_per_invoice"] = [round(svc.total_input_tokens / n), round(svc.total_output_tokens / n)]
+            json.dump(cat, open(path, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+        print(f"  catalog updated for {svc.model} (push to main so installed apps see it)")
 
 
 if __name__ == "__main__":

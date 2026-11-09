@@ -215,7 +215,11 @@ class SetupScreen(ctk.CTkFrame):
 
         if n:
             self.btn_start.configure(text=f"Read {n} invoice{'s' if n != 1 else ''}", state="normal")
-            self.lbl_estimate.configure(text=f"About €{max(0.01, n * 0.0035 * self.eur_rate):.2f} for {n} invoices · Gemini 3.8 Flash")
+            from src.services import models
+            mid = settings.load().get("model") or models.default_model()
+            cost = models.cost_per_invoice(mid)
+            est = f"About €{max(0.01, n * cost * self.eur_rate):.2f} for {n} invoices · " if cost else ""
+            self.lbl_estimate.configure(text=f"{est}{models.label(mid)}")
         else:
             self.btn_start.configure(text="Choose a folder")
             self.lbl_estimate.configure(text="No PDFs found yet" if self.source else "")

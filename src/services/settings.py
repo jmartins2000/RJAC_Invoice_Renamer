@@ -12,6 +12,7 @@ DEFAULTS = {
     "filename_fields": {"date": True, "value": True, "invoice_number": True, "supplier": True, "original": False},
     "delete_original": True,
     "last_source": None,
+    "model": None,  # None = the catalog's default
     "usage": {},  # "YYYY-MM": {"invoices": int, "cost_usd": float}
 }
 

@@ -4,12 +4,10 @@ import webbrowser
 import customtkinter as ctk
 
 from src.services import api_key as key_store
-from src.services import settings, updater
-from src.services.gemini_service import DEFAULT_MODEL, validate_api_key
+from src.services import models, settings, updater
+from src.services.gemini_service import validate_api_key
 from src.ui import background, icons, theme as t
 from src.version import __version__
-
-MODEL_LABEL = DEFAULT_MODEL.replace("gemini-", "Gemini ").replace("-flash", " Flash").replace("-pro", " Pro")
 
 
 def masked(key):
@@ -34,8 +32,6 @@ class SettingsScreen(ctk.CTkFrame):
 
         col = ctk.CTkFrame(self, fg_color="transparent", width=640)
         col.pack(pady=(44, 0))
-        col.pack_propagate(False)
-        col.configure(height=600)
 
         # --- API key ---
         head = ctk.CTkFrame(col, fg_color="transparent")
@@ -60,11 +56,28 @@ class SettingsScreen(ctk.CTkFrame):
         t.divider(col).pack(fill="x", pady=(24, 0))
 
         # --- Model & usage ---
-        sec = self._section(col, "AI model", f"{MODEL_LABEL} · about €0.003 per invoice")
+        msec = ctk.CTkFrame(col, fg_color="transparent")
+        msec.pack(fill="x", pady=28)
+        mhead = ctk.CTkFrame(msec, fg_color="transparent")
+        mhead.pack(fill="x")
+        t.label(mhead, "AI model", size=16, weight="bold").pack(side="left")
         u = settings.month_usage()
-        t.label(sec, f"This month: €{u['cost_usd'] * self.eur_rate:.2f} · {u['invoices']} invoices",
+        t.label(mhead, f"This month: €{u['cost_usd'] * self.eur_rate:.2f} · {u['invoices']} invoices",
                 size=13, color=t.LICHEN).pack(side="right")
+        menu_box = ctk.CTkFrame(msec, fg_color=t.SNOW, corner_radius=8, border_width=1, border_color=t.FIELD_BORDER)
+        menu_box.pack(fill="x", pady=(14, 8))
+        self.model_menu = ctk.CTkOptionMenu(
+            menu_box, values=["Loading models…"], command=self._model_chosen, height=42, corner_radius=8,
+            fg_color=t.SNOW, button_color=t.SNOWFIELD, button_hover_color=t.FROST, text_color=t.INK,
+            dropdown_fg_color=t.SNOW, dropdown_hover_color=t.SELECTED, dropdown_text_color=t.INK,
+            font=t.font(14), dropdown_font=t.font(13), dynamic_resizing=False, width=636, height=40,
+            state="disabled")
+        self.model_menu.pack(fill="x", padx=2, pady=2)
+        self.lbl_model = t.label(msec, "", size=13, color=t.LICHEN, wraplength=640)
+        self.lbl_model.pack(anchor="w", fill="x")
         t.divider(col).pack(fill="x")
+        self.model_infos = []
+        background.run(self, lambda: models.available(key_store.get_api_key()), self._models_loaded)
 
         # --- Updates ---
         sec = self._section(col, "Updates", f"Version {__version__}")
@@ -126,6 +139,59 @@ class SettingsScreen(ctk.CTkFrame):
         key_store.save_api_key(key)
         self.lbl_key_msg.configure(text="Saved.", text_color=t.EVERGREEN)
         self._show_key_state()
+
+    # --- Model ---
+    def _per100(self, info):
+        if info.cost is None:
+            return "price unknown"
+        return f"€{info.cost * 100 * self.eur_rate:.2f} per 100 invoices"
+
+    def _option(self, info):
+        tag = f" · {info.tag}" if info.tag else ""
+        return f"{info.label}{tag} · {self._per100(info)}"
+
+    def _models_loaded(self, result):
+        current = settings.load().get("model") or models.default_model()
+        if isinstance(result, Exception) or not result:
+            self.model_menu.configure(values=[models.label(current)], state="disabled")
+            self.model_menu.set(models.label(current))
+            self.lbl_model.configure(text="Couldn't load the list of models (check the API key or internet).")
+            return
+        self.model_infos = result
+        if current not in [m.id for m in result]:
+            result.insert(0, models.describe(current))
+        self.model_menu.configure(values=[self._option(m) for m in result], state="normal")
+        self._select(current)
+
+    def _select(self, model_id):
+        info = next((m for m in self.model_infos if m.id == model_id), models.describe(model_id))
+        self.model_menu.set(self._option(info))
+        bits = [f"Tested on sample invoices: {info.tested} fully correct" if info.tested else "Not tested yet"]
+        if info.later:
+            cost, when = info.later
+            bits.append(f"rises to €{cost * 100 * self.eur_rate:.2f} per 100 on {when.day} {when.strftime('%b %Y')}")
+        if info.note:
+            bits.append(info.note)
+        self.lbl_model.configure(text=" · ".join(bits), text_color=t.LICHEN)
+
+    def _model_chosen(self, option):
+        info = self.model_infos[[self._option(m) for m in self.model_infos].index(option)]
+        previous = settings.load().get("model") or models.default_model()
+        if info.id == previous:
+            return
+        self.model_menu.configure(state="disabled")
+        self.lbl_model.configure(text=f"Checking that {info.label} works with your key…", text_color=t.LICHEN)
+
+        def done(err):
+            self.model_menu.configure(state="normal")
+            if err:
+                self._select(previous)
+                self.lbl_model.configure(text=f"{info.label} can't be used: {err} Kept {models.label(previous)}.",
+                                         text_color=t.RED)
+            else:
+                settings.save(model=info.id)
+                self._select(info.id)
+        background.run(self, lambda: models.probe(key_store.get_api_key(), info.id), done)
 
     # --- Updates ---
     def _check_updates(self):
