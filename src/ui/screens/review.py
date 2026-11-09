@@ -36,28 +36,6 @@ def export_rows(rows, field_defs, folder, button):
         return ok
 
 
-def bind_wheel(widget, scrollable):
-    """Make the mouse wheel scroll `scrollable` while the pointer is over `widget`."""
-    canvas = scrollable._parent_canvas
-
-    def on_wheel(event):
-        if canvas.yview() == (0.0, 1.0):
-            return
-        if event.num == 4:
-            step = -1
-        elif event.num == 5:
-            step = 1
-        elif abs(event.delta) >= 120:  # Windows: multiples of 120
-            step = -int(event.delta / 120)
-        else:  # macOS: small deltas
-            step = -event.delta
-        canvas.yview_scroll(step, "units")
-        return "break"
-
-    for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-        widget.bind(seq, on_wheel, add="+")
-
-
 class FileRow(ctk.CTkFrame):
     def __init__(self, master, name, on_click, scroller):
         super().__init__(master, fg_color="transparent", corner_radius=8, height=36)
@@ -68,9 +46,6 @@ class FileRow(ctk.CTkFrame):
         for w in (self, self.icon, self.text):
             w.bind("<Button-1>", lambda _: on_click())
             w.configure(cursor=t.HAND)
-            bind_wheel(w, scroller)
-            for child in w.winfo_children():  # CTk widgets draw on an inner canvas
-                bind_wheel(child, scroller)
         self._state = None
         self._selected = False
 
@@ -230,7 +205,6 @@ class ReviewScreen(ctk.CTkFrame):
                                            scrollbar_button_color=t.FROST,
                                            scrollbar_button_hover_color=t.FIELD_BORDER)
         self.list.pack(fill="both", expand=True, padx=(10, 0), pady=(0, 10))
-        bind_wheel(self.list, self.list)
         self.rows = [FileRow(self.list, name, lambda i=i: self._goto(i), self.list)
                      for i, name in enumerate(self.files)]
         for r in self.rows:

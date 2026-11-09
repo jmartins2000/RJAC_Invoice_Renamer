@@ -35,6 +35,8 @@ class MainWindow(ctk.CTk):
         self.minsize(min(900, w), min(600, h))
         self._set_icon()
         t.resolve_fonts(self)
+        from src.ui import scrolling
+        scrolling.install(self)
 
         self.screen = None
         self.update_info = None

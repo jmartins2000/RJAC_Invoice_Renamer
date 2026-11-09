@@ -4,7 +4,9 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 from src.services import fields as fieldmod
+from src.services import settings
 from src.ui import icons, theme as t
+from src.ui.screens.setup import EXAMPLE, EXAMPLE_ORIGINAL
 
 TYPE_LABELS = {"text": "Text", "number": "Number", "date": "Date"}
 
@@ -105,14 +107,37 @@ class FieldsScreen(ctk.CTkFrame):
         ctk.CTkButton(bar, text="", image=icons.line_icon("arrow_left"), width=34, height=34,
                       corner_radius=8, fg_color=t.SNOW, hover_color=t.SNOWFIELD, border_width=1,
                       border_color=t.FROST, command=on_back).pack(side="left", padx=(24, 14), pady=14)
-        t.label(bar, "Fields", size=15, weight="bold").pack(side="left")
+        t.label(bar, "Fields & filename", size=15, weight="bold").pack(side="left")
         t.primary_button(bar, "+ Add a field", command=self._add, height=36, size=13).pack(side="right", padx=24)
         t.divider(self).pack(fill="x")
 
         wrap = ctk.CTkFrame(self, fg_color="transparent", width=800)
         wrap.pack(fill="both", expand=True, pady=(28, 0))
+        # --- Separator ---
+        sep = ctk.CTkFrame(wrap, fg_color=t.SNOWFIELD, corner_radius=12, width=800, height=120)
+        sep.pack_propagate(False)
+        sep.pack()
+        row = ctk.CTkFrame(sep, fg_color="transparent")
+        row.pack(fill="x", padx=20, pady=(16, 4))
+        left = ctk.CTkFrame(row, fg_color="transparent")
+        left.pack(side="left")
+        t.label(left, "Separator between fields", size=15, weight="bold").pack(anchor="w")
+        t.label(left, "Type what goes between the values in the filename. Spaces count.",
+                size=12, color=t.LICHEN).pack(anchor="w")
+        t.link_button(row, "Reset", command=self._reset_sep).pack(side="right")
+        self.e_sep = ctk.CTkEntry(row, width=110, height=38, corner_radius=8, border_width=1,
+                                  border_color=t.FIELD_BORDER, fg_color=t.SNOW, text_color=t.INK,
+                                  font=t.mono(16), justify="center")
+        self.e_sep.pack(side="right", padx=(0, 8))
+        self.e_sep.insert(0, settings.load().get("separator") or fieldmod.DEFAULT_SEPARATOR)
+        self.e_sep.bind("<KeyRelease>", lambda _: self._sep_changed(), add="+")
+        self.lbl_sep_ex = ctk.CTkLabel(sep, text="", font=t.mono(13), text_color=t.EVERGREEN, anchor="w",
+                                       justify="left", wraplength=740)
+        self.lbl_sep_ex.pack(anchor="w", fill="x", padx=20, pady=(6, 14))
+        self._sep_changed()
+
         head = ctk.CTkFrame(wrap, fg_color="transparent", width=800)
-        head.pack()
+        head.pack(pady=(22, 0))
         t.label(head, "What is read from each invoice. Switch a field off to stop reading it; choose whether it "
                       "goes into the filename and the Excel. The order here is the order in the filename.",
                 size=14, color=t.LICHEN, wraplength=800).pack(anchor="w")
@@ -124,6 +149,29 @@ class FieldsScreen(ctk.CTkFrame):
 
     def _save(self):
         fieldmod.save(self.fields)
+        if hasattr(self, "e_sep"):
+            self._sep_changed()
+
+    def _sep_changed(self):
+        sep = self.e_sep.get()
+        problem = fieldmod.separator_problem(sep)
+        if problem:
+            self.e_sep.configure(border_color=t.RED, border_width=2)
+            self.lbl_sep_ex.configure(text=problem, text_color=t.RED)
+            return
+        self.e_sep.configure(border_color=t.FIELD_BORDER, border_width=1)
+        settings.save(separator=sep)
+        example = dict(EXAMPLE)
+        for f in self.fields:
+            example.setdefault(f.key, f.label)
+        keys = fieldmod.filename_keys(self.fields, settings.load().get("filename_original"))
+        name = fieldmod.build_filename(example, EXAMPLE_ORIGINAL, self.fields, keys, sep)
+        self.lbl_sep_ex.configure(text=f"Example:  {name}", text_color=t.EVERGREEN)
+
+    def _reset_sep(self):
+        self.e_sep.delete(0, "end")
+        self.e_sep.insert(0, fieldmod.DEFAULT_SEPARATOR)
+        self._sep_changed()
 
     def _render(self):
         for w in self.list.winfo_children():

@@ -121,25 +121,13 @@ class SetupScreen(ctk.CTkFrame):
         self.chips_box = ctk.CTkFrame(card, fg_color="transparent")
         self.chips_box.pack(fill="x", padx=24, pady=(24, 0))
 
-        sep_row = ctk.CTkFrame(card, fg_color="transparent")
-        sep_row.pack(fill="x", padx=24, pady=(6, 0))
-        t.label(sep_row, "Separator", size=13, color=t.LICHEN).pack(side="left", padx=(0, 12))
-        self.sep_labels = {" ~ ": "   ~   ", " - ": "   -   ", " _ ": "   _   ", " ": " Space "}
-        self.sep_menu = ctk.CTkSegmentedButton(
-            sep_row, values=list(self.sep_labels.values()), command=self._set_separator, height=32, width=220,
-            font=t.font(13), fg_color=t.SNOWFIELD, selected_color=t.EVERGREEN,
-            selected_hover_color=t.EVERGREEN_HOVER, unselected_color=t.SNOWFIELD,
-            unselected_hover_color=t.FROST, text_color=t.INK, corner_radius=8)
-        self.sep_menu.pack(side="left")
-        self.sep_menu.set(self.sep_labels.get(self.separator, "~"))
-
         ex = ctk.CTkFrame(card, fg_color=t.SNOWFIELD, corner_radius=10)
         ex.pack(fill="x", padx=24, pady=(16, 0))
         t.label(ex, "Example", size=12, color=t.LICHEN).pack(anchor="w", padx=20, pady=(16, 6))
         self.lbl_example = ctk.CTkLabel(ex, text="", font=t.mono(14), text_color=t.EVERGREEN,
                                         anchor="w", justify="left", wraplength=380)
         self.lbl_example.pack(anchor="w", fill="x", padx=20, pady=(0, 16))
-        t.label(card, "Click a field to add or remove it. Add more fields (like NIF or VAT) in Settings.",
+        t.label(card, "Click a field to add or remove it. More fields and the separator: Settings → Fields & filename.",
                 size=13, color=t.LICHEN, wraplength=400).pack(anchor="w", fill="x", padx=24, pady=(18, 24))
         right.bind("<Configure>", lambda e: self.lbl_example.configure(wraplength=max(200, e.width - 90)))
 
@@ -187,11 +175,6 @@ class SetupScreen(ctk.CTkFrame):
             return
         fieldmod.save(self.fields)
         settings.save(filename_original=self.include_original)
-        self._refresh()
-
-    def _set_separator(self, label):
-        self.separator = next(k for k, v in self.sep_labels.items() if v == label)
-        settings.save(separator=self.separator)
         self._refresh()
 
     # --- Actions ---

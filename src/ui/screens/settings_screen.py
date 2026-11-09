@@ -82,7 +82,8 @@ class SettingsScreen(ctk.CTkFrame):
         # --- Fields ---
         from src.services import fields as fieldmod
         on = [f.label for f in fieldmod.load() if f.enabled]
-        sec = self._section(col, "Fields", "Reading: " + ", ".join(on))
+        sep = settings.load().get("separator") or fieldmod.DEFAULT_SEPARATOR
+        sec = self._section(col, "Fields & filename", f"Reading: {', '.join(on)} · separator \"{sep}\"")
         sec.sub.configure(wraplength=480)
         t.secondary_button(sec, "Edit fields", command=on_fields, width=110).pack(side="right")
         t.divider(col).pack(fill="x")

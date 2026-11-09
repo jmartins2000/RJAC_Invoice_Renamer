@@ -28,6 +28,8 @@ FAKE = [("Fatura FT A-29.pdf", {"date": "2026-10-06", "total_value": 60000.0, "i
         ("EDP outubro.pdf", {"date": "2026-10-14", "total_value": 84.12, "invoice_number": "FT 2026/88123",
                              "supplier": "EDP Comercial"}),
         ("scan_0001.pdf", {"date": "", "total_value": None, "invoice_number": "", "supplier": ""})]
+FAKE += [(f"extra_{i:02d}.pdf", {"date": f"2026-09-{i + 1:02d}", "total_value": 10.0 + i,
+                                  "invoice_number": f"FT X/{i}", "supplier": "Fornecedor Teste"}) for i in range(25)]
 for name, values in FAKE:
     doc = pymupdf.open()
     page = doc.new_page()
@@ -95,6 +97,24 @@ try:
     while rv.in_flight and time.time() - t < 30:
         pump(0.2)
     shot("2_review")
+    # Scrolling: the invoice list must move with the mouse wheel and (Tk 9) the trackpad
+    canvas = rv.list._parent_canvas
+    before = canvas.yview()
+    rv.rows[3].text.event_generate("<MouseWheel>", delta=-120)
+    pump(0.3)
+    if canvas.yview()[0] <= before[0]:
+        errors.append(f"mouse wheel did not scroll the invoice list: {before} -> {canvas.yview()}")
+    else:
+        print("mouse wheel scroll OK:", before, "->", canvas.yview())
+    try:
+        mid = canvas.yview()
+        rv.rows[3].text.event_generate("<TouchpadScroll>", delta=(0 << 16) | ((-60) & 0xFFFF))
+        pump(0.3)
+        print("trackpad scroll:", mid, "->", canvas.yview())
+        if canvas.yview()[0] <= mid[0]:
+            errors.append("trackpad did not scroll the invoice list")
+    except tkinter.TclError:
+        print("trackpad event not supported by this Tk (8.6): trackpads send <MouseWheel> there")
     rv._goto(2); shot("2b_review_warning")
     rv.rename_all(); shot("3_rename_dialog")
     for w in app.winfo_children():
@@ -104,6 +124,9 @@ try:
     rv._do_rename(todo, done, skipped, inv, True); shot("4_done")
     app.show_history(); shot("5_history")
     app.show_fields(); shot("6_fields")
+    app.screen.e_sep.delete(0, "end"); app.screen.e_sep.insert(0, " / "); app.screen._sep_changed()
+    shot("6b_fields_bad_separator")
+    app.screen._reset_sep()
     app.show_settings(); shot("7_settings")
     print("files after rename:", sorted(os.listdir(inv)))
 except Exception as e:
