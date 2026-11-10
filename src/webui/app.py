@@ -26,6 +26,21 @@ def _windows_engine_missing():
         webbrowser.open(WEBVIEW2_URL)
 
 
+def _free_port(preferred=42001):
+    """pywebview always serves the page on port 42001 (so the page's saved state survives restarts).
+    If that's taken — e.g. the app is already open, or another program uses it — the page server
+    can't start and the window stays blank. Use 42001 when free, otherwise any free port."""
+    import socket
+    for port in (preferred, 0):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return s.getsockname()[1]
+            except OSError:
+                continue
+    return None
+
+
 def create(api=None, debug=False):
     api = api or Api()
     index = get_resource_path(os.path.join("src", "web", "index.html"))
@@ -45,7 +60,8 @@ def start(func=None, args=None, debug=False):
     mimetypes.add_type("font/woff2", ".woff2")
     gui = "edgechromium" if sys.platform == "win32" else None
     try:
-        webview.start(func, args, debug=debug, http_server=True, private_mode=False, gui=gui)
+        webview.start(func, args, debug=debug, http_server=True, private_mode=False, gui=gui,
+                      http_port=_free_port())
     except Exception:
         if sys.platform == "win32":
             _windows_engine_missing()
