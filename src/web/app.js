@@ -69,3 +69,5 @@ function App() {
 }
 
 render(html`<${App} />`, document.getElementById("app"));
+window.__rjacStarted = true;  // the safety net in index.html stops waiting
+try { sessionStorage.removeItem("rjacReloads"); } catch (e) { /* storage unavailable */ }

@@ -5,6 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RJAC Invoice Renamer</title>
   <link rel="stylesheet" href="styles.css">
+  <script>
+    // Runs before the app's code: records loading/JS errors (shown in feedback and tests), and if the
+    // app hasn't started after 10 s (e.g. a module failed to load), reloads the page — at most twice.
+    window.__rjacErrors = [];
+    addEventListener("error", function (e) {
+      window.__rjacErrors.push(String(e.message || (e.target && (e.target.src || e.target.href)) || "error"));
+    }, true);
+    addEventListener("unhandledrejection", function (e) {
+      window.__rjacErrors.push("rejection: " + String((e.reason && e.reason.message) || e.reason));
+    });
+    setTimeout(function () {
+      if (window.__rjacStarted) return;
+      var n = 0;
+      try { n = +(sessionStorage.getItem("rjacReloads") || 0); sessionStorage.setItem("rjacReloads", n + 1); } catch (e) { n = 9; }
+      if (n < 2) location.reload();
+    }, 10000);
+  </script>
 </head>
 <body>
   <div id="app"></div>

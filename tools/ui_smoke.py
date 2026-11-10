@@ -200,7 +200,14 @@ def check(cond, message):
 
 def test():
     try:
-        wait("!!document.querySelector('.row, .empty')", 40, "home screen")
+        try:
+            wait("!!document.querySelector('.row, .empty')", 40, "home screen")
+        except TimeoutError:
+            print("PAGE STATE at timeout:", js("JSON.stringify({ready: document.readyState, url: location.href, "
+                  "started: !!window.__rjacStarted, errors: window.__rjacErrors || 'no error log', "
+                  "bridge: !!(window.pywebview && window.pywebview.api && typeof window.pywebview.api.app_info === 'function'), "
+                  "app_children: (document.getElementById('app') || {children: []}).children.length})"))
+            raise
         js("window.__errs = []; window.addEventListener('error', (e) => __errs.push(e.message));"
            "window.addEventListener('unhandledrejection', (e) => __errs.push(String(e.reason && (e.reason.message || e.reason))));")
         shot("0_home")

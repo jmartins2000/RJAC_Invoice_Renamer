@@ -6,9 +6,16 @@ import htm from "./vendor/htm.mjs";
 export const html = htm.bind(h);
 
 // ---------- Python bridge ----------
+// pywebview first creates `window.pywebview.api` as an EMPTY object and only adds the Python
+// functions later (then fires "pywebviewready"). Checking that `api` exists is not enough: if the
+// page runs in between, the first call isn't a function yet and the app stays blank. So wait until
+// a real function is there — via the event, with polling as a fallback in case the event was missed.
+const bridgeReady = () => !!(window.pywebview && window.pywebview.api && typeof window.pywebview.api.app_info === "function");
 const ready = new Promise((resolve) => {
-  if (window.pywebview && window.pywebview.api) resolve();
-  else window.addEventListener("pywebviewready", () => resolve());
+  if (bridgeReady()) return resolve();
+  const done = () => { if (bridgeReady()) { clearInterval(poll); window.removeEventListener("pywebviewready", done); resolve(); } };
+  const poll = setInterval(done, 50);
+  window.addEventListener("pywebviewready", done);
 });
 export const api = new Proxy({}, {
   get: (_, name) => async (...args) => { await ready; return window.pywebview.api[name](...args); },
