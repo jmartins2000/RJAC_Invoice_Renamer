@@ -322,12 +322,14 @@ def test():
         shot("6d_efatura")
         click("No receipt", ".fchip")
         click("FT ZZ/999", ".ef-item")
-        click("Not needed")
+        click("Choose a code", ".menu-btn")
+        shot("6e_efatura_codes")
+        click("3 ·", ".menu-item")
         time.sleep(1)
         from src.services import efatura
-        check("not_needed" in efatura.resolutions(inv).values(), "'Not needed' wasn't remembered")
+        check(3 in efatura.codes(inv).values(), "the chosen code (3) wasn't remembered")
         click("All", ".fchip")
-        shot("6e_efatura_resolved")
+        shot("6f_efatura_resolved")
 
         # --- Feedback: snip + send (fails on purpose) -> saved to the Desktop
         js("window.dispatchEvent(new Event('open-feedback'))")
