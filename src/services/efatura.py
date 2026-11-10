@@ -260,3 +260,39 @@ def _differences(values, row):
     if values.get("total_value") not in (None, "") and not _same_amount(values.get("total_value"), row["total"]):
         out.append(f"total {values.get('total_value')} vs e-Fatura {row['total']:.2f}")
     return out
+
+
+# ------------------------------------------------------------------ what the user decided per case
+def _rdb():
+    db = _db()
+    db.execute("CREATE TABLE IF NOT EXISTS efatura_resolved (project TEXT, item TEXT, resolution TEXT, at TEXT, "
+               "PRIMARY KEY (project, item))")
+    return db
+
+
+def row_key(r):
+    """Stable id of an e-Fatura row (for 'not needed')."""
+    return f"ef:{r['supplier_nif']}|{norm_number(r['number']) or ''}|{r['date']}|{r['total']:.2f}"
+
+
+def invoice_key(inv):
+    return f"inv:{inv['hash']}"
+
+
+def resolutions(project):
+    with history._lock:
+        return dict(_rdb().execute("SELECT item, resolution FROM efatura_resolved WHERE project=?",
+                                   (os.path.abspath(project),)).fetchall())
+
+
+def resolve(project, item, resolution):
+    """resolution: e.g. 'not_needed', 'kept', 'registered'; None undoes it."""
+    with history._lock:
+        db = _rdb()
+        if resolution:
+            db.execute("INSERT OR REPLACE INTO efatura_resolved VALUES (?,?,?,?)",
+                       (os.path.abspath(project), item, resolution,
+                        datetime.datetime.now().isoformat(timespec="seconds")))
+        else:
+            db.execute("DELETE FROM efatura_resolved WHERE project=? AND item=?", (os.path.abspath(project), item))
+        db.commit()

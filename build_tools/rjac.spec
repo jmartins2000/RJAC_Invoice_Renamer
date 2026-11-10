@@ -8,11 +8,13 @@ VERSION = re.search(r'__version__ = "(.+?)"', open(os.path.join(ROOT, "src", "ve
 NAME = "RJAC Invoice Renamer"
 
 datas = [(os.path.join(ROOT, "assets"), "assets"),
-         (os.path.join(ROOT, "src", "data"), os.path.join("src", "data"))]
+         (os.path.join(ROOT, "src", "data"), os.path.join("src", "data")),
+         (os.path.join(ROOT, "src", "web"), os.path.join("src", "web"))]  # the interface (HTML/CSS/JS, fonts)
 binaries, hiddenimports = [], ["keyring.backends.Windows", "keyring.backends.macOS", "zxingcpp"]
-if sys.platform == "darwin":
-    hiddenimports += ["objc", "AppKit", "Foundation"]  # feedback: render our own window (no permission)
-for pkg in ("customtkinter",):
+pkgs = ["webview"]  # pywebview: its platform backends are imported dynamically
+if sys.platform == "win32":
+    pkgs += ["clr_loader", "pythonnet"]  # pywebview reaches Edge WebView2 through .NET (pythonnet)
+for pkg in pkgs:
     d, b, h = collect_all(pkg); datas += d; binaries += b; hiddenimports += h
 datas += copy_metadata("keyring") + copy_metadata("google-genai")
 
@@ -22,7 +24,8 @@ a = Analysis(
     datas=datas,
     binaries=binaries,
     hiddenimports=hiddenimports,
-    excludes=["google.generativeai", "grpc", "matplotlib", "numpy", "pandas", "IPython"],
+    excludes=["google.generativeai", "grpc", "matplotlib", "numpy", "pandas", "IPython", "tkinter", "customtkinter",
+              "PyQt5", "PyQt6", "PySide2", "PySide6", "gi"],
 )
 pyz = PYZ(a.pure)
 

@@ -1,16 +1,21 @@
-"""Clicks through every screen with fake invoices and saves screenshots. For CI only:
-it opens real windows, so don't run it on a computer someone is using.
+"""Clicks through every screen of the real app window with fake invoices and saves screenshots.
+For CI only: it opens a real window, so don't run it on a computer someone is using.
+(To try the screens locally without a window, use tools/web_dev.py with a headless browser.)
 
 Usage: python tools/ui_smoke.py <output_dir>
-Exits 1 if any screen raised an error.
+Exits 1 if anything failed, 2 if the UI hung.
 """
+import base64
 import os
+import shutil
 import sys
 import tempfile
+import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+os.chdir(ROOT)
 OUT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "ui-shots")
 os.makedirs(OUT, exist_ok=True)
 work = tempfile.mkdtemp(prefix="rjac-ui-")
@@ -19,9 +24,11 @@ os.environ.setdefault("GEMINI_API_KEY", "AIza-fake-key-for-ui-test")
 os.environ["RJAC_FEEDBACK_URL"] = "http://127.0.0.1:9"  # never send test feedback; exercise the Desktop fallback
 
 import pymupdf  # noqa: E402
+from PIL import Image as _Img, ImageDraw as _Draw  # noqa: E402
 
 from src.services import history  # noqa: E402
 
+# ------------------------------------------------------------------ fake client folder
 inv = os.path.join(work, "Faturas Outubro")
 os.makedirs(inv)
 FAKE = [("Fatura FT A-29.pdf", {"date": "2026-10-06", "total_value": 60000.0, "invoice_number": "FT A/29",
@@ -42,9 +49,7 @@ for name, values in FAKE:
     doc.close()  # Windows can't delete/rename files that are still open
     history.save(history.fingerprint(path), values, "read", path, model="gemini-3.8-flash")
 
-import shutil  # noqa: E402
 shutil.copy(os.path.join(inv, "EDP outubro.pdf"), os.path.join(inv, "TESTE.pdf"))  # an exact copy
-from PIL import Image as _Img, ImageDraw as _Draw  # noqa: E402
 _photo = _Img.new("RGB", (800, 1100), "white")
 _Draw.Draw(_photo).text((60, 60), "Galp Energia  Fatura FT 9/2026  Total 41.80", fill="black")
 _photo_path = os.path.join(inv, "foto fatura galp.png")
@@ -53,7 +58,7 @@ history.save(history.fingerprint(_photo_path), {"date": "2026-10-20", "total_val
              "invoice_number": "FT 9/2026", "supplier": "Galp Energia"}, "read", _photo_path)
 
 errors = []
-# Official AT QR code: generate one on a receipt image and check it is read back exactly
+# Official AT QR code on a receipt image, remembered with a wrong year (from an old version)
 import zxingcpp  # noqa: E402
 from src.services import qr_at  # noqa: E402
 _qr_text = ("A:500052999*B:516953648*C:PT*D:FS*E:N*F:20260606*G:FS 274062002/668058*H:JFNMG2WJ-668058"
@@ -68,253 +73,317 @@ _qr = qr_at.read(_receipt_path)
 print("AT QR read:", _qr)
 if not _qr or _qr.get("date") != "2026-06-06" or _qr.get("total_value") != 50.0 or _qr.get("invoice_number") != "FS 274062002/668058":
     errors.append(f"AT QR not read correctly: {_qr}")
-shutil.copy(_receipt_path, os.path.join(inv, "talao com qr.png"))
-history.save(history.fingerprint(os.path.join(inv, "talao com qr.png")),
+QR_FILE = "talao com qr.png"
+shutil.copy(_receipt_path, os.path.join(inv, QR_FILE))
+history.save(history.fingerprint(os.path.join(inv, QR_FILE)),
              {"date": "2024-06-06", "total_value": 50.0, "invoice_number": "FS 274062002/668058",
-              "supplier": "Fuelgest24"}, "renamed", os.path.join(inv, "talao com qr.png"))  # wrong year from an old version
-import tkinter  # noqa: E402
+              "supplier": "Fuelgest24"}, "renamed", os.path.join(inv, QR_FILE))
 
-tkinter.Tk.report_callback_exception = lambda self, *exc: errors.append(exc)
-from tkinter import messagebox  # noqa: E402
+# e-Fatura export for this client: two of its invoices + one with no receipt
+EF_CSV = os.path.join(work, "efatura_export.csv")
+with open(EF_CSV, "w", encoding="cp1252", newline="") as _f:
+    _f.write("Data Emissão;NIF Emitente;Nome Emitente;Tipo;Nº Fatura;Valor Total\n"
+             "06-10-2026;517875845;Quociente Invencível Lda;Fatura;FT A/29;60.000,00\n"
+             "14-10-2026;503504564;EDP Comercial;Fatura;FT 2026/88123;84,12\n"
+             "20-10-2026;500000009;Fornecedor Sem Talão;Fatura;FT ZZ/999;12,30\n")
 
-messagebox.askyesno = messagebox.askokcancel = lambda *a, **k: True
-dialogs = []
-for _name in ("showwarning", "showinfo", "showerror"):  # never block on a popup: record it instead
-    setattr(messagebox, _name, lambda *a, _n=_name, **k: dialogs.append((_n, a)))
-from PIL import ImageGrab  # noqa: E402
-import threading  # noqa: E402
+from src.services import gemini_service  # noqa: E402
+
+gemini_service.GeminiService._call = lambda self, *a, **k: {"is_invoice": True}  # never call Google in the test
+
+# ------------------------------------------------------------------ the app window
+import webview  # noqa: E402
+
+from src.webui.app import create, start  # noqa: E402
+
+api, window = create()
+api.start_background = lambda: None  # no update check / model list from the network
+OUT_DIR = os.path.join(work, "renamed")
+os.makedirs(OUT_DIR)
+api._ask_folder = lambda start=None: OUT_DIR                     # "Change" in the rename dialog
+api._ask_save = lambda folder, name: os.path.join(work, name)    # every "Export to Excel"
+window.create_file_dialog = lambda *a, **k: [EF_CSV]             # "Import export files…"
 
 
-def _watchdog():
-    """If the UI hangs, save what's on screen and stop instead of waiting forever."""
-    time.sleep(120)
+def watchdog():
+    time.sleep(170)
     try:
+        from PIL import ImageGrab
         ImageGrab.grab(all_screens=True).save(os.path.join(OUT, "HANG.png"))
     except Exception:
         pass
-    print("UI smoke test HUNG for 120s (see HANG.png). Popups seen:", dialogs, flush=True)
+    print("UI smoke test HUNG (see HANG.png). Errors so far:", errors, flush=True)
     os._exit(2)
 
 
-threading.Thread(target=_watchdog, daemon=True).start()
-
-from src.ui.main_window import MainWindow  # noqa: E402
-
-app = MainWindow()
-# keep the app's own fit-to-screen size
+threading.Thread(target=watchdog, daemon=True).start()
 
 
-def pump(sec):
-    end = time.time() + sec
+def js(code):
+    return window.evaluate_js(code)
+
+
+def wait(cond, timeout=30, what=None):
+    end = time.time() + timeout
     while time.time() < end:
-        app.update()
-        time.sleep(0.03)
+        try:
+            if js(cond):
+                return True
+        except Exception:
+            pass
+        time.sleep(0.2)
+    raise TimeoutError(f"waited {timeout}s for: {what or cond}")
+
+
+def click(text, sel="button, .row, .file-row, .ef-item, .menu-item, .fchip, .link"):
+    ok = js(f"""(() => {{ const el = [...document.querySelectorAll({sel!r})]
+        .find((e) => e.textContent.trim().includes({text!r}) && !e.disabled);
+        if (el) {{ el.click(); return true; }} return false; }})()""")
+    if not ok:
+        raise RuntimeError(f"nothing clickable with text {text!r} ({sel})")
+    time.sleep(0.4)
+
+
+def type_into(selector, value, index=0):
+    js(f"""(() => {{ const el = document.querySelectorAll({selector!r})[{index}];
+        el.value = {value!r}; el.dispatchEvent(new Event('input', {{ bubbles: true }})); }})()""")
+    time.sleep(0.3)
+
+
+def count(selector):
+    return js(f"document.querySelectorAll({selector!r}).length")
 
 
 def shot(name):
-    pump(1.0)
-    x, y, w, h = app.winfo_rootx(), app.winfo_rooty(), app.winfo_width(), app.winfo_height()
+    time.sleep(0.6)
+    js("window.__shotData = null; window.__rjacShot().then((d) => { window.__shotData = d; }, (e) => { window.__shotData = 'ERR ' + e; })")
     try:
-        ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True).save(os.path.join(OUT, f"{name}.png"))
+        wait("!!window.__shotData", 20, "screenshot")
+        data = js("window.__shotData")
+        if data.startswith("ERR"):
+            raise RuntimeError(data)
+        with open(os.path.join(OUT, f"{name}.png"), "wb") as f:
+            f.write(base64.b64decode(data.split(",", 1)[1]))
+        print("shot", name, flush=True)
     except Exception as e:
-        print(f"screenshot {name} failed: {e}")
+        print(f"screenshot {name} failed: {e}", flush=True)
 
 
-try:
-    from src.services import history as hist
-    app.show_home(); shot("0_home")
-    app.show_folder(inv); pump(2); shot("1_folder_before")
-    app.show_review(inv); rv = app.screen
-    t0 = time.time()
-    while rv.in_flight and time.time() - t0 < 30:
-        pump(0.2)
-    shot("2_review")
-    # Scrolling: the invoice list must move with the mouse wheel and (Tk 9) the trackpad
-    canvas = rv.list._parent_canvas
-    before = canvas.yview()
-    rv.rows[3].text.event_generate("<MouseWheel>", delta=-120)
-    pump(0.3)
-    if canvas.yview()[0] <= before[0]:
-        errors.append(f"mouse wheel did not scroll the invoice list: {before} -> {canvas.yview()}")
-    else:
-        print("mouse wheel scroll OK:", before, "->", canvas.yview())
+def os_shot(name):
+    """A picture of the real window as the OS shows it (checks native rendering, fonts, DPI)."""
     try:
-        mid = canvas.yview()
-        rv.rows[3].text.event_generate("<TouchpadScroll>", delta=(0 << 16) | ((-60) & 0xFFFF))
-        pump(0.3)
-        print("trackpad scroll:", mid, "->", canvas.yview())
-        if canvas.yview()[0] <= mid[0]:
-            errors.append("trackpad did not scroll the invoice list")
-    except tkinter.TclError:
-        print("trackpad event not supported by this Tk (8.6): trackpads send <MouseWheel> there")
-    # Preview zoom
-    rv._goto(0); pump(2.5)
-    pv = rv.preview
-    if not pv.pil_images:
-        errors.append("preview did not load")
-    else:
-        pv.set_zoom(3); pump(0.8)
-        region_w = float(str(pv.canvas.cget("scrollregion")).split()[2])
-        print("zoom:", pv.lbl_zoom.cget("text"), "| page area", int(region_w), "px vs view", pv.canvas.winfo_width())
-        if pv.lbl_zoom.cget("text") != "200%" or region_w <= pv.canvas.winfo_width():
-            errors.append("preview zoom did not enlarge the page")
-        shot("2d_review_zoom_200")
-        pv.set_zoom(0)
-    rv._goto(rv.files.index("talao com qr.png")); pump(3)
-    qpath = os.path.join(inv, "talao com qr.png")
-    print("history re-check via QR:", rv.values[qpath].get("date"), "| corrections:", rv.qr.get(qpath))
-    if rv.values[qpath].get("date") != "2026-06-06":
-        errors.append("wrong year from history was not corrected by the QR re-check")
-    print("QR outline on preview:", rv.preview.highlight)
-    if not rv.preview.highlight:
-        errors.append("QR code not outlined on the preview")
-    shot("2e_review_qr_outline")
-    teste = os.path.join(inv, "TESTE.pdf")
-    if teste not in rv.duplicate_of:
-        errors.append(f"copy TESTE.pdf not flagged as duplicate: {rv.duplicate_of}")
-    else:
-        print("duplicate flagged:", "TESTE.pdf ->", rv.duplicate_of[teste])
-        rv._goto(rv.files.index("TESTE.pdf")); shot("2c_review_duplicate")
-    rv._goto(2); shot("2b_review_warning")
-    rv.rename_all(); shot("3_rename_dialog")
-    for w in app.winfo_children():
-        if isinstance(w, tkinter.Toplevel):
-            w.destroy()
-    todo, done, skipped = rv._renamable()
-    if "TESTE.pdf" in todo:
-        errors.append("duplicate would be renamed")
-    if "foto fatura galp.png" not in rv.files:
-        errors.append("image invoice not listed")
-    out_dir = os.path.join(work, "renamed")
-    rv._do_rename(todo, done, skipped, out_dir, False); shot("4_done")   # keep originals, rename into another folder
-    pngs = [f for f in os.listdir(out_dir) if f.endswith(".png")]
-    print("renamed image:", pngs)
-    if not pngs:
-        errors.append("image invoice not renamed with its .png extension")
-    if not os.path.exists(teste):
-        errors.append("duplicate was touched")
-    print("files after rename:", sorted(os.listdir(inv))[:4], "...")
-    app.screen.btn_export  # Done screen has an export button
-    # Second review of the same folder: kept originals must not be renamed again
-    app.show_review(inv); rv2 = app.screen
-    t0 = time.time()
-    while rv2.in_flight and time.time() - t0 < 30:
-        pump(0.2)
-    todo2 = rv2._renamable()[0]
-    print("second run: elsewhere", len(rv2.copy_elsewhere), "| would rename", todo2)
-    if todo2:
-        errors.append(f"kept originals would be renamed again: {todo2}")
-    rv2._goto(0); shot("4b_review_already_renamed")
-    app.show_folder(inv); pump(2); shot("5_folder_after")
-    runs = hist.runs(inv)
-    print("runs recorded:", [(r["gemini_reads"], r["renamed"]) for r in runs])
-    if not runs or runs[0]["renamed"] == 0:
-        errors.append(f"run not recorded: {runs}")
-    from src.services.excel_exporter import ExcelExporter
-    from src.services import fields as fm
-    import openpyxl
-    xl = os.path.join(work, "out.xlsx")
-    ExcelExporter.export(hist.query(folder=inv), [f for f in fm.load() if f.enabled and f.in_excel], xl)
-    header = [c.value for c in openpyxl.load_workbook(xl).active[1]]
-    print("excel columns:", header)
-    if "Original name" not in header:
-        errors.append("Original name missing from Excel")
-    # Feedback: open from the folder screen, send (fails on purpose) -> saved to Desktop
-    from src.ui.feedback_dialog import FeedbackDialog
-    app.show_folder(inv); pump(1)
-    fb = FeedbackDialog(app, None, folder=inv, screen_name="FolderScreen")
-    pump(1); shot("5b_feedback")
-    if sys.platform == "darwin":
-        from src.ui.feedback_dialog import _mac_render_own_window
-        own = _mac_render_own_window(app)
-        print("mac own-window render:", own.size if own else None)
-        if own is None:
-            errors.append("macOS own-window render failed (would need Screen Recording permission)")
-        else:
-            own.save(os.path.join(OUT, "5a_own_window_render.png"))
-    fb._take(); pump(2)
-    from src.ui.feedback_dialog import SnipOverlay
-    ov = next((w for w in app.winfo_children() if isinstance(w, SnipOverlay)), None)
-    if ov is None:
-        errors.append("snip overlay did not open")
-    else:
-        shot("5c_snip_overlay")
-        ov.canvas.event_generate("<ButtonPress-1>", x=80, y=70)
-        ov.canvas.event_generate("<B1-Motion>", x=420, y=300)
-        pump(0.5); shot("5d_snip_selecting")
-        ov.canvas.event_generate("<ButtonRelease-1>", x=420, y=300)
-        pump(1)
-        print("snippet size:", fb.shot.size if fb.shot else None)
-        if fb.shot is None or fb.shot.width < 200:
-            errors.append("snippet not attached")
-        shot("5e_feedback_with_snippet")
-    fb.text.insert("1.0", "UI test feedback")
-    fb._send()
-    t0 = time.time()
-    while fb.winfo_exists() and fb.btn_send.cget("text") in ("Sending…",) and time.time() - t0 < 60:
-        pump(0.2)
-    print("feedback result:", fb.btn_send.cget("text"), "|", fb.status.cget("text")[:90])
-    if fb.btn_send.cget("text") != "Saved to Desktop":
-        errors.append("feedback fallback did not save to Desktop")
-    fb.destroy()
-    # Per-client period filter: Q3 2026 = the September invoices only
-    app.show_folder(inv); pump(1.5); fs = app.screen
-    fs.m_period.set("Q3 2026"); fs._load(); pump(0.5)
-    sept = [r for r in fs.rows if r["values"].get("date", "").startswith("2026-09")]
-    print("Q3 2026 rows:", len(fs.rows), "| all September:", len(sept) == len(fs.rows), "| export name:",
-          f"{os.path.basename(inv)} – {fs._period()[2]}.xlsx")
-    if not fs.rows or len(sept) != len(fs.rows):
-        errors.append("period filter wrong")
-    shot("6_folder_q3")
-    fs._custom_range("2026-09-05", "2026-09-10"); pump(0.5)
-    print("custom range rows:", len(fs.rows), "| label:", fs.m_period.get())
-    if len(fs.rows) != 6:
-        errors.append(f"custom range should show 6 invoices, got {len(fs.rows)}")
-    shot("6b_folder_custom_range")
-    # e-Fatura: import an export for this client and compare
-    from src.services import efatura as ef
-    _exp = os.path.join(work, "efatura_export.csv")
-    with open(_exp, "w", encoding="cp1252", newline="") as _f:
-        _f.write("Data Emissão;NIF Emitente;Nome Emitente;Tipo;Nº Fatura;Valor Total\n"
-                 "06-10-2026;517875845;Quociente Invencível Lda;Fatura;FT A/29;60.000,00\n"
-                 "14-10-2026;503504564;EDP Comercial;Fatura;FT 2026/88123;84,12\n"
-                 "20-10-2026;500000009;Fornecedor Sem Talão;Fatura;FT ZZ/999;12,30\n")
-    ef.import_files(inv, [_exp])
-    app.show_efatura(inv); pump(1.5)
-    _r = app.screen.result
-    print("e-Fatura comparison:", {k: len(v) for k, v in _r.items()})
-    if len(_r["matched"]) < 2 or len(_r["missing"]) != 1:
-        errors.append(f"e-Fatura comparison wrong: { {k: len(v) for k, v in _r.items()} }")
-    shot("6c_efatura_missing")
-    app.screen._show("matched"); pump(0.5); shot("6d_efatura_matched")
-    app.show_fields(); shot("7_fields")
-    app.screen.e_sep.delete(0, "end"); app.screen.e_sep.insert(0, " / "); app.screen._sep_changed()
-    shot("7b_fields_bad_separator")
-    app.screen._reset_sep()
-    app.show_settings(); shot("8_settings")
-    # Small window: the whole Settings page must be reachable by scrolling
-    app.geometry("1000x520"); pump(1); app.show_settings(); pump(1)
-    sc = app.screen.scroll
-    view0 = sc._parent_canvas.yview()
-    target = sc.winfo_children()[0] if sc.winfo_children() else sc
-    target.event_generate("<MouseWheel>", delta=-120); pump(0.4)
-    print("settings in small window:", view0, "->", sc._parent_canvas.yview())
-    if view0[1] >= 1.0 or sc._parent_canvas.yview()[0] <= view0[0]:
-        errors.append("Settings page not scrollable in a small window")
-    shot("8b_settings_small_window_scrolled")
-    # Night mode
-    app.set_appearance("dark"); pump(1); shot("9_dark_settings")
-    app.show_home(); shot("9_dark_home")
-    app.show_folder(inv); pump(2); shot("9_dark_folder")
-    app.show_review(inv); pump(3); shot("9_dark_review")
-    app.set_appearance("system")
-except Exception as e:
-    errors.append(e)
-app.destroy()
+        from PIL import ImageGrab
+        x, y, w, h = window.x, window.y, window.width, window.height
+        ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True).save(os.path.join(OUT, f"{name}.png"))
+        print("os shot", name, flush=True)
+    except Exception as e:
+        print(f"OS screenshot {name} failed: {e}", flush=True)
 
-if dialogs:
-    print("Popups shown during the test:", *dialogs, sep="\n")
-if errors or any(d[0] in ("showwarning", "showerror") for d in dialogs):
-    print("UI errors:", *[repr(e) for e in errors], sep="\n")
+
+def back():
+    click("", ".topbar .btn.icon[title=Back]")
+
+
+def check(cond, message):
+    if not cond:
+        errors.append(message)
+        print("FAIL:", message, flush=True)
+
+
+def test():
+    try:
+        wait("!!document.querySelector('.row, .empty')", 40, "home screen")
+        js("window.__errs = []; window.addEventListener('error', (e) => __errs.push(e.message));"
+           "window.addEventListener('unhandledrejection', (e) => __errs.push(String(e.reason && (e.reason.message || e.reason))));")
+        shot("0_home")
+        os_shot("0_home_window")
+
+        # --- Folder
+        click("Faturas Outubro", ".row")
+        wait("[...document.querySelectorAll('.topbar .btn.solid')].some((b) => !b.disabled)", 30, "folder button")
+        shot("1_folder_before")
+
+        # --- Review
+        click("Review", ".topbar .btn.solid")
+        wait("!!document.querySelector('.review') && !document.querySelector('.dot.reading')", 60, "all read")
+        shot("2_review")
+        s = api._session
+        teste = os.path.join(inv, "TESTE.pdf")
+        check(teste in s.duplicate_of, f"copy TESTE.pdf not flagged as duplicate: {s.duplicate_of}")
+        check("foto fatura galp.png" in s.files, "image invoice not listed")
+        qpath = os.path.join(inv, QR_FILE)
+        print("history re-check via QR:", s.values.get(qpath, {}).get("date"), "| corrections:", s.qr.get(qpath))
+        check(s.values.get(qpath, {}).get("date") == "2026-06-06", "wrong year from history not corrected by the QR")
+        click(QR_FILE, ".file-row")
+        wait("!!document.querySelector('.qr-box')", 30, "QR outline on the preview")
+        shot("2e_review_qr_outline")
+        click("Fatura FT A-29.pdf", ".file-row")
+        wait("!!document.querySelector('.page-img img')", 30, "preview")
+        js("document.querySelector('.zoom button:last-child').click(); document.querySelector('.zoom button:last-child').click()")
+        time.sleep(0.4)
+        zoom = js("document.querySelector('.zoom-pct').textContent")
+        print("zoom:", zoom)
+        check(zoom == "156%", f"preview zoom didn't change ({zoom})")
+        shot("2d_review_zoom")
+        click("TESTE.pdf", ".file-row")
+        wait("!!document.querySelector('.notice')", 10, "duplicate notice")
+        shot("2c_review_duplicate")
+        click("scan_0001.pdf", ".file-row")
+        wait("!!document.querySelector('.form, .notice')", 10, "warning file")
+        shot("2b_review_warning")
+
+        # --- Rename into another folder, keeping the originals
+        click("Rename", ".topbar .btn.solid")
+        wait("!!document.querySelector('.modal')", 10, "rename dialog")
+        click("Change", ".modal .link")
+        js("const t = document.querySelector('.modal .toggle.on'); if (t) t.click();")
+        time.sleep(0.3)
+        shot("3_rename_dialog")
+        click("Rename", ".modal .btn.solid")
+        wait("!!document.querySelector('.big-check')", 30, "done screen")
+        shot("4_done")
+        renamed = os.listdir(OUT_DIR)
+        print("renamed:", len(renamed), "files, e.g.", sorted(renamed)[:2])
+        check(any(f.endswith(".png") for f in renamed), "image invoice not renamed with its .png extension")
+        check(os.path.exists(teste), "duplicate was touched")
+        check(os.path.exists(os.path.join(inv, "EDP outubro.pdf")), "original deleted although 'delete' was off")
+        click("Export to Excel")
+        time.sleep(1.5)
+        xl = os.path.join(work, "invoices.xlsx")
+        check(os.path.exists(xl), "Excel export from the Done screen not saved")
+        if os.path.exists(xl):
+            import openpyxl
+            header = [c.value for c in openpyxl.load_workbook(xl).active[1]]
+            print("excel columns:", header)
+
+        # --- Second review: kept originals must not be renamed again
+        click("Back to")
+        wait("[...document.querySelectorAll('.topbar .btn.solid')].some((b) => !b.disabled)", 30, "folder button")
+        click("Review", ".topbar .btn.solid")
+        wait("!!document.querySelector('.review') && !document.querySelector('.dot.reading')", 60, "second read")
+        todo2 = api._session.renamable()[0]
+        print("second run: elsewhere", len(api._session.copy_elsewhere), "| would rename", todo2)
+        check(not todo2, f"kept originals would be renamed again: {todo2}")
+        shot("4b_review_already_renamed")
+        back()
+        wait("!!document.querySelector('.folder-body .table')", 20, "folder table")
+        shot("5_folder_after")
+        runs = history.runs(inv)
+        print("runs recorded:", [(r["gemini_reads"], r["renamed"]) for r in runs])
+        check(runs and any(r["renamed"] for r in runs), f"run not recorded: {runs}")
+
+        # --- Periods
+        js("document.querySelector('.table-head .menu-btn').click()")
+        time.sleep(0.3)
+        click("Q3 2026", ".menu-item")
+        time.sleep(1)
+        rows = count(".folder-body tbody tr")
+        print("Q3 2026 rows:", rows)
+        check(rows == 25, f"Q3 2026 should show the 25 September invoices, got {rows}")
+        shot("6_folder_q3")
+        js("document.querySelector('.table-head .menu-btn').click()")
+        time.sleep(0.3)
+        click("Custom dates", ".menu-item")
+        wait("!!document.querySelector('.modal input')", 10, "custom dates dialog")
+        type_into(".modal input", "05/09/2026", 0)
+        type_into(".modal input", "10.09.2026", 1)
+        click("Show", ".modal .btn.solid")
+        time.sleep(1)
+        rows = count(".folder-body tbody tr")
+        print("custom range rows:", rows)
+        check(rows == 6, f"custom range should show 6 invoices, got {rows}")
+        shot("6b_folder_custom_range")
+
+        # --- e-Fatura
+        click("Compare with e-Fatura")
+        wait("!!document.querySelector('.center-col h1, .ef')", 20, "e-Fatura screen")
+        shot("6c_efatura_empty")
+        click("Import export files")
+        wait("!!document.querySelector('.ef-item')", 20, "e-Fatura cases")
+        view = api.efatura_view(inv)
+        kinds = {k: sum(1 for i in view["items"] if i["kind"] == k) for k in ("matched", "differ", "missing", "not_in_ef")}
+        print("e-Fatura comparison:", kinds)
+        check(kinds["matched"] >= 2 and kinds["missing"] == 1, f"e-Fatura comparison wrong: {kinds}")
+        shot("6d_efatura")
+        click("No receipt", ".fchip")
+        click("FT ZZ/999", ".ef-item")
+        click("Not needed")
+        time.sleep(1)
+        from src.services import efatura
+        check("not_needed" in efatura.resolutions(inv).values(), "'Not needed' wasn't remembered")
+        click("All", ".fchip")
+        shot("6e_efatura_resolved")
+
+        # --- Feedback: snip + send (fails on purpose) -> saved to the Desktop
+        js("window.dispatchEvent(new Event('open-feedback'))")
+        wait("!!document.querySelector('.modal textarea')", 10, "feedback dialog")
+        type_into(".modal textarea", "UI test feedback")
+        shot("7_feedback")
+        click("Take screenshot")
+        wait("!!document.querySelector('.snip')", 30, "snip overlay")
+        shot("7b_snip")
+        js("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))")
+        wait("!!document.querySelector('.shot img')", 10, "snippet attached")
+        click("Send", ".modal .btn.solid")
+        wait("/Desktop|saved/i.test(document.querySelector('.modal').textContent)", 60, "feedback fallback")
+        shot("7c_feedback_saved")
+        click("Close", ".modal .btn")
+
+        # --- Settings, fields, night mode, small window
+        back()
+        wait("!!document.querySelector('.folder-body')", 20, "folder")
+        back()
+        wait("!!document.querySelector('.row')", 20, "home")
+        click("Settings")
+        wait("!!document.querySelector('section')", 20, "settings")
+        shot("8_settings")
+        click("Edit fields")
+        wait("!!document.querySelector('.field-row')", 20, "fields")
+        shot("8b_fields")
+        type_into(".sep-input", " / ")
+        check(count(".sep-input.bad") == 1, "a separator with / was accepted")
+        shot("8c_fields_bad_separator")
+        click("Reset", ".sep-top .link")
+        back()
+        wait("!!document.querySelector('section')", 20, "settings")
+        click("Night", ".seg button")
+        shot("9_dark_settings")
+        os_shot("9_dark_settings_window")
+        back()
+        wait("!!document.querySelector('.row')", 20, "home")
+        shot("9_dark_home")
+        click("Faturas Outubro", ".row")
+        wait("!!document.querySelector('.folder-body')", 20, "folder")
+        shot("9_dark_folder")
+        api.set_appearance("system")
+        back()
+        wait("!!document.querySelector('.row')", 20, "home")
+        click("Settings")
+        wait("!!document.querySelector('section')", 20, "settings")
+        window.resize(1000, 560)
+        time.sleep(1)
+        scrollable = js("(() => { const p = document.querySelector('#app > .page'); return p.scrollHeight > p.clientHeight; })()")
+        print("settings scrollable in a small window:", scrollable)
+        check(scrollable, "Settings page not scrollable in a small window")
+        js("document.querySelector('#app > .page').scrollTop = 10000")
+        shot("9b_settings_small_window_scrolled")
+
+        js_errors = js("window.__errs") or []
+        if js_errors:
+            print("Page errors:", *js_errors, sep="\n  ")
+            errors.extend(f"page error: {e}" for e in js_errors)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        errors.append(repr(e))
+        shot("ZZ_failure")
+    finally:
+        window.destroy()
+
+
+start(test)
+
+if errors:
+    print("UI errors:", *errors, sep="\n")
     sys.exit(1)
 print(f"UI smoke OK, screenshots in {OUT}")

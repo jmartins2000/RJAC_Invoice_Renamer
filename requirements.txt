@@ -1,5 +1,5 @@
 # Runtime
-customtkinter>=5.2
+pywebview>=5.3      # the window (WebKit on macOS, Edge WebView2 on Windows) showing src/web
 packaging
 pymupdf>=1.24
 google-genai>=1.40
@@ -10,7 +10,6 @@ requests
 openpyxl
 pillow
 zxing-cpp          # reads the official AT QR code on Portuguese invoices
-pyobjc-framework-Cocoa; sys_platform == "darwin"  # feedback screenshots without screen-recording permission
 
 # Build (packaging the app)
 pyinstaller>=6.10
