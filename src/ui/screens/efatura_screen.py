@@ -116,7 +116,8 @@ class EfaturaScreen(ctk.CTkFrame):
         self.tree.pack(fill="both", expand=True, padx=(6, 0), pady=6)
         self.tree.tag_configure("odd", background=t.c(t.ROW_ALT))
 
-        self.empty = t.label(body, "", size=14, color=t.LICHEN, wraplength=640, justify="center")
+        self.empty = ctk.CTkLabel(body, text="", font=t.font(14), text_color=t.LICHEN, wraplength=640,
+                                  justify="center")
         self._load()
 
     # --- data ---
