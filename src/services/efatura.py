@@ -153,10 +153,36 @@ def _db():
     return db
 
 
+def exports_dir(project):
+    """Where copies of a client's imported export files are kept (sent along with feedback)."""
+    import hashlib
+    from src.services.settings import _dir
+    key = hashlib.sha1(os.path.abspath(project).encode("utf-8")).hexdigest()[:12]
+    return os.path.join(_dir(), "efatura_exports", key)
+
+
+def _keep_copy(project, path):
+    import shutil
+    folder = exports_dir(project)
+    os.makedirs(folder, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    try:
+        shutil.copy2(path, os.path.join(folder, f"{stamp} {os.path.basename(path)}"))
+    except OSError as e:
+        print(f"Couldn't keep a copy of {path}: {e}")
+
+
+def kept_exports(project):
+    folder = exports_dir(project)
+    return sorted(os.path.join(folder, f) for f in os.listdir(folder)) if os.path.isdir(folder) else []
+
+
 def import_files(project, paths):
     """Adds the rows of one or more export files to the client's e-Fatura list. Returns (added, total)."""
     project = os.path.abspath(project)
-    rows = [r for p in paths for r in parse(p)]
+    rows = [r for p in paths for r in parse(p)]  # parse all first: nothing is kept if a file is invalid
+    for p in paths:
+        _keep_copy(project, p)
     now = datetime.datetime.now().isoformat(timespec="seconds")
     added = 0
     with history._lock:

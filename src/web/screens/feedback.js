@@ -93,7 +93,7 @@ export function Feedback({ onClose }) {
       </span></div>
     ${shot && html`<div class="shot"><img src=${shot} /><button class="btn icon small" title="Remove" onClick=${() => setShot(null)}><${Icon} name="x" size=${14} /></button></div>`}
     ${folder && html`<div class="toggle-row"><${Check} on=${include} onChange=${setInclude} />
-      <div><b>Include this folder's invoices and data</b><small class="muted">"${folder.name}" · ${folder.files} file${folder.files !== 1 ? "s" : ""}, ${folder.mb} MB</small></div></div>`}
+      <div><b>Include this folder's invoices and data</b><small class="muted">"${folder.name}" · ${folder.files} file${folder.files !== 1 ? "s" : ""}, ${folder.mb} MB${folder.efatura ? " · plus its e-Fatura data" : ""} · never the API key</small></div></div>`}
     ${status && html`<p class=${status.err ? "error small" : status.ok ? "green small" : "muted small"}>${status.text}</p>`}
     <div class="actions">
       <button class="btn" disabled=${busy} onClick=${onClose}>${state === "sent" || state === "saved" ? "Close" : "Cancel"}</button>

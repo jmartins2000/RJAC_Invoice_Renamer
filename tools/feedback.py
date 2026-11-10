@@ -4,7 +4,8 @@
   python tools/feedback.py get ID     download + unzip into feedback_inbox/ID/
   python tools/feedback.py get new    download everything not downloaded yet
   python tools/feedback.py delete ID  remove it from the inbox (after you've downloaded it)
-  python tools/feedback.py harvest ID add its QR-verified receipts to the private test dataset
+  python tools/feedback.py harvest ID add its QR-verified receipts (and any e-Fatura export files)
+                                      to the private test dataset
                                       (samples/ = github.com/jmartins2000/RJAC-test-data) and push
 
 Uses the private admin token in ~/.config/rjac/feedback_admin_token (never in the repo).
@@ -94,6 +95,16 @@ def harvest(sid):
         added += 1
     json.dump(gt, open(gt_path, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     print(f"{sid}: added {added} QR-verified receipts, {skipped} already in the dataset")
+    # Real e-Fatura export files: kept for testing the parser against real column layouts
+    exports = os.path.join(INBOX, sid, "folder", "efatura", "exports")
+    if os.path.isdir(exports):
+        ef_dest = os.path.join(samples, "efatura-exports", sid)
+        os.makedirs(ef_dest, exist_ok=True)
+        for f in os.listdir(exports):
+            if sha(os.path.join(exports, f)) not in have:
+                shutil.copy(os.path.join(exports, f), os.path.join(ef_dest, f))
+                added += 1
+        print(f"kept {len(os.listdir(ef_dest))} e-Fatura export file(s) in samples/efatura-exports/{sid}")
     if added:
         subprocess.run(["git", "-C", samples, "add", "-A"], check=True)
         subprocess.run(["git", "-C", samples, "commit", "-qm", f"Harvest {added} QR-verified receipts from feedback {sid}"],

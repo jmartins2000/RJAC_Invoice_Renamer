@@ -56,9 +56,34 @@ def build_package(kind, message, screenshot=None, folder=None, include_files=Tru
                 from src.services.file_types import list_invoices
                 for f in list_invoices(folder):
                     z.write(os.path.join(folder, f), f"folder/files/{f}")
+            _add_efatura(z, folder)
     data = buf.getvalue()
     meta["bytes"] = len(data)
     return data, meta
+
+
+def _add_efatura(z, folder):
+    """The client's e-Fatura data, if any: original export files, imported rows, comparison, decisions."""
+    from src.services import efatura
+    try:
+        if not efatura.stored_count(folder):
+            return
+        for p in efatura.kept_exports(folder):
+            z.write(p, f"folder/efatura/exports/{os.path.basename(p)}")
+        result = efatura.compare(folder)
+        slim = lambda inv: {k: inv.get(k) for k in ("hash", "file_name", "status", "values")}  # noqa: E731
+        comparison = {
+            "matched": [{"receipt": slim(i), "efatura": r, "how": how} for i, r, how in result["matched"]],
+            "differ": [{"receipt": slim(i), "efatura": r, "differences": d} for i, r, d in result["differ"]],
+            "missing": result["missing"], "not_in_ef": [slim(i) for i in result["not_in_ef"]],
+        }
+        z.writestr("folder/efatura/rows.json", json.dumps(efatura.rows(folder), indent=1, ensure_ascii=False))
+        z.writestr("folder/efatura/comparison.json",
+                   json.dumps(comparison, indent=1, ensure_ascii=False, default=str))
+        z.writestr("folder/efatura/decisions.json",
+                   json.dumps(efatura.resolutions(folder), indent=1, ensure_ascii=False))
+    except Exception as e:  # feedback must still go out even if this part fails
+        z.writestr("folder/efatura/error.txt", f"Couldn't add the e-Fatura data: {e}")
 
 
 def send(data, meta, progress=None):

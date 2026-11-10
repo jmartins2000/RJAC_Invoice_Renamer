@@ -546,7 +546,8 @@ class Api:
             return None
         from src.services import feedback
         n, size = feedback.folder_size(path)
-        return {"name": os.path.basename(path), "files": n, "mb": round(size / 1e6, 1)}
+        return {"name": os.path.basename(path), "files": n, "mb": round(size / 1e6, 1),
+                "efatura": efatura.stored_count(path) > 0}
 
     def feedback_send(self, kind, message, screenshot, folder, include_files, screen):
         """screenshot: PNG data URL or None. Returns {"ok": True} | {"saved": path} | {"error": msg}."""
