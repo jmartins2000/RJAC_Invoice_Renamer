@@ -7,6 +7,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 
@@ -59,6 +60,11 @@ def _db():
             _conn.execute("ALTER TABLE invoices ADD COLUMN run_id INTEGER")
         if "hidden" not in {r[1] for r in _conn.execute("PRAGMA table_info(projects)")}:
             _conn.execute("ALTER TABLE projects ADD COLUMN hidden INTEGER DEFAULT 0")
+        pcols = {r[1] for r in _conn.execute("PRAGMA table_info(projects)")}
+        if "name" not in pcols:  # the client's name as the user calls it (default: folder name)
+            _conn.execute("ALTER TABLE projects ADD COLUMN name TEXT")
+        if "nif" not in pcols:  # the client's NIF (optional; used in e-Fatura workbooks)
+            _conn.execute("ALTER TABLE projects ADD COLUMN nif TEXT")
         _conn.commit()
     return _conn
 
@@ -168,7 +174,7 @@ def projects():
                    "FROM invoices WHERE project IS NOT NULL GROUP BY project")
         db.commit()
         rows = db.execute("""
-            SELECT p.path, p.dest_folder, p.created_at,
+            SELECT p.path, p.dest_folder, p.created_at, p.name, p.nif,
                    (SELECT COUNT(*) FROM runs r WHERE r.project = p.path) AS runs,
                    (SELECT MAX(started_at) FROM runs r WHERE r.project = p.path) AS last_run,
                    COALESCE((SELECT MAX(updated_at) FROM invoices i WHERE i.project = p.path), p.created_at) AS used
@@ -186,6 +192,26 @@ def projects():
         d["to_check"] = sum(1 for i in inv if i["status"] == "read")
         out.append(d)
     return out
+
+
+def set_details(path, name=None, nif=None):
+    """The client's name (empty = use the folder's name) and NIF."""
+    with _lock:
+        _db().execute("UPDATE projects SET name=?, nif=? WHERE path=?",
+                      ((name or "").strip() or None, re.sub(r"\D", "", nif or "") or None, os.path.abspath(path)))
+        _db().commit()
+
+
+def delete_project(path):
+    """Deletes a client from the app: its invoices as read, runs and the client itself.
+    Never touches files on disk. (e-Fatura data is deleted by efatura.delete_project.)"""
+    path = os.path.abspath(path)
+    with _lock:
+        db = _db()
+        db.execute("DELETE FROM invoices WHERE project=?", (path,))
+        db.execute("DELETE FROM runs WHERE project=?", (path,))
+        db.execute("DELETE FROM projects WHERE path=?", (path,))
+        db.commit()
 
 
 def project(path):

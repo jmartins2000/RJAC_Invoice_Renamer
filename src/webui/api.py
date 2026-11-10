@@ -169,7 +169,7 @@ class Api:
         out = []
         for p in history.projects():
             out.append({
-                "path": p["path"], "name": os.path.basename(p["path"]) or p["path"],
+                "path": p["path"], "name": p.get("name") or os.path.basename(p["path"]) or p["path"],
                 "parent": nice_path(p["path"]),
                 "exists": os.path.isdir(p["path"]), "invoices": p["invoices"], "total": round(p["total"], 2),
                 "runs": p["runs"], "last_run": (p["last_run"] or "")[:10], "to_check": p["to_check"],
@@ -192,6 +192,22 @@ class Api:
         history.remove_project(path)
         return True
 
+    def _client_name(self, path):
+        p = history.project(path) or {}
+        return p.get("name") or os.path.basename(path) or path
+
+    def rename_client(self, path, name, nif=""):
+        history.add_project(path)
+        history.set_details(path, name, nif)
+        return self.folder(path)
+
+    def delete_client(self, path):
+        """Deletes the client and everything the app keeps about it. Files on disk are never touched."""
+        efatura.delete_project(path)
+        history.delete_project(path)
+        self._ef_cache.pop(path, None)
+        return True
+
     def folder(self, path):
         history.add_project(path)
         project = history.project(path) or {}
@@ -201,7 +217,9 @@ class Api:
         sep = prefs.get("separator") or fieldmod.DEFAULT_SEPARATOR
         dest = project.get("dest_folder")
         return {
-            "path": path, "name": os.path.basename(path) or path, "where": nice_path(path, 4),
+            "path": path, "name": project.get("name") or os.path.basename(path) or path,
+            "folder_name": os.path.basename(path) or path, "custom_name": bool(project.get("name")),
+            "nif": project.get("nif") or "", "where": nice_path(path, 4),
             "exists": os.path.isdir(path),
             "periods": [{"label": p[0], "start": p[1][0], "end": p[1][1], "short": p[2]}
                         for p in periods.options(history.years(path))],
@@ -264,7 +282,7 @@ class Api:
         if not rows:
             return None
         project = history.project(path) or {}
-        name = os.path.basename(path) + (f" – {short}" if short else "")
+        name = self._client_name(path) + (f" – {short}" if short else "")
         out = self._ask_save(project.get("dest_folder") or path, f"{name}.xlsx")
         if not out:
             return None
@@ -278,7 +296,7 @@ class Api:
         self.review_close()
         session = ReviewSession(key, path, on_change=lambda p: self._emit("file", self._file_state(session, p)))
         self._session = session
-        return {"name": os.path.basename(path) or path, "folder": path, "dest": session.dest,
+        return {"name": self._client_name(path), "folder": path, "dest": session.dest,
                 "fields": [{"key": f.key, "label": f.label, "type": f.type} for f in session.fields],
                 "files": [self._file_state(session, session.path(f)) for f in session.files]}
 
@@ -366,7 +384,7 @@ class Api:
         self._done = {"rows": result.pop("rows"), "dest": dest, "folder": s.folder}
         self.review_close()
         return {**result, "dest": dest, "dest_name": os.path.basename(dest) or dest,
-                "folder": s.folder, "folder_name": os.path.basename(s.folder),
+                "folder": s.folder, "folder_name": self._client_name(s.folder),
                 "cost_eur": round(result["cost_usd"] * self._eur, 2)}
 
     def review_export(self):
@@ -739,7 +757,7 @@ class Api:
         view = self.efatura_view(path, start, end)
         if not view["items"]:
             return None
-        name = f"e-Fatura {os.path.basename(path)}" + (f" – {short}" if short else "")
+        name = f"e-Fatura {self._client_name(path)}" + (f" – {short}" if short else "")
         out = self._ask_save(path, f"{name}.xlsx")
         if not out:
             return None

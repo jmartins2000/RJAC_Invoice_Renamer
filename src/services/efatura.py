@@ -387,3 +387,16 @@ def monthly_totals(rows_):
         m["total"] += sign * (r.get("total") or 0)
         m["base"] += sign * (r["base"] if r.get("base") is not None else (r.get("total") or 0) - (r.get("vat") or 0))
     return [out[k] for k in sorted(out)]
+
+
+def delete_project(project):
+    """Removes everything e-Fatura keeps for a client (rows, decisions, codes, kept export files)."""
+    import shutil
+    project = os.path.abspath(project)
+    with history._lock:
+        db = _cdb()
+        _rdb()
+        for table, col in (("efatura", "project"), ("efatura_resolved", "project"), ("efatura_codes", "project")):
+            db.execute(f"DELETE FROM {table} WHERE {col}=?", (project,))
+        db.commit()
+    shutil.rmtree(exports_dir(project), ignore_errors=True)

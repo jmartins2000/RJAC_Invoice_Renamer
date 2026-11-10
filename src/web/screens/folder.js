@@ -72,12 +72,34 @@ export function InvoiceTable({ columns, rows }) {
     </div>`;
 }
 
+function ClientDialog({ info, onClose, onSaved }) {
+  const [name, setName] = useState(info.custom_name ? info.name : "");
+  const [nif, setNif] = useState(info.nif || "");
+  const [busy, setBusy] = useState(false);
+  const save = async () => { setBusy(true); onSaved(await api.rename_client(info.path, name, nif)); };
+  const badNif = nif && nif.replace(/\D/g, "").length !== 9;
+  return html`<${Modal} onClose=${onClose} width=${460}>
+    <h2>Client details</h2>
+    <label class="field-label">Name</label>
+    <input class="input" value=${name} placeholder=${info.folder_name} autofocus
+      onInput=${(e) => setName(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && !badNif && save()} />
+    <small class="muted">Shown in the app and used in Excel file names. Leave empty to use the folder's name (${info.folder_name}).</small>
+    <label class="field-label">NIF (optional)</label>
+    <input class="input mono" value=${nif} placeholder="500000000" inputmode="numeric"
+      onInput=${(e) => setNif(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && !badNif && save()} />
+    ${badNif && html`<small class="warn">A NIF has 9 digits.</small>`}
+    <div class="actions"><button class="btn" onClick=${onClose}>Cancel</button>
+      <button class="btn solid" disabled=${busy || badNif} onClick=${save}>Save</button></div>
+  <//>`;
+}
+
 export function Folder({ path, go }) {
   const [info, setInfo] = useState(null);
   const [period, setPeriod] = useState(null);
   const [data, setData] = useState(null);
   const [button, setButton] = useState({ label: "Checking for new files…", enabled: false });
   const [exported, setExported] = useState(null);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     ctx.screen = "Folder"; ctx.folder = path;
@@ -96,9 +118,9 @@ export function Folder({ path, go }) {
     if (r) setInfo({ ...info, ...r });
   };
   const remove = async () => {
-    if (await confirmBox({ title: "Remove folder", ok: "Remove", danger: true,
-      text: `Remove "${info.name}" from your folders?\n\nNo files are deleted, and invoices already read stay remembered (they won't be paid for again if you add the folder back).` })) {
-      await api.remove_folder(path); go("home");
+    if (await confirmBox({ title: `Delete ${info.name}?`, ok: "Delete client", danger: true,
+      text: `This removes the client from the app with everything the app keeps about it: invoices as read, runs, imported e-Fatura data and codes.\n\nThe files in the folder are NOT deleted or changed.\n\nIf you add the folder again, its invoices are read again (Gemini cost).` })) {
+      await api.delete_client(path); toast(`${info.name} deleted.`); go("home");
     }
   };
   const rows = data ? data.rows : [];
@@ -119,6 +141,11 @@ export function Folder({ path, go }) {
         <small class="muted hint">Double-click a row to open the file.</small>
       </div>
       <aside class="side">
+        <div class="eyebrow">Client</div>
+        <p class="client-name"><b>${info.name}</b>${info.nif && html`<span class="muted"> · NIF ${info.nif}</span>`}</p>
+        ${info.custom_name && html`<small class="muted block">Folder: ${info.folder_name}</small>`}
+        <button class="link" onClick=${() => setEditing(true)}>Edit name and NIF</button>
+        <div class="divider"></div>
         <div class="eyebrow">Runs</div>
         ${info.runs.length === 0 && html`<p class="muted">None yet</p>`}
         ${info.runs.slice(0, 6).map((r) => html`<div class="run"><span>${niceDate(r.date, true)}</span><span class="muted">${r.reads} read · €${r.eur.toFixed(2)}${r.renamed ? ` · ${r.renamed} renamed` : ""}</span></div>`)}
@@ -135,7 +162,9 @@ export function Folder({ path, go }) {
         <div class="eyebrow">e-Fatura</div>
         <p class="muted">${info.efatura ? `${info.efatura} invoices imported from the portal` : "Compare with the AT's list to find missing receipts."}</p>
         <button class="link" onClick=${() => go("efatura", path)}>Compare with e-Fatura</button>
-        <button class="btn-quiet" onClick=${remove}>Remove from the list</button>
+        <button class="btn-quiet" onClick=${remove}>Delete client…</button>
       </aside>
-    </div>`;
+    </div>
+    ${editing && html`<${ClientDialog} info=${info} onClose=${() => setEditing(false)}
+      onSaved=${(f) => { setEditing(false); setInfo({ ...info, ...f }); toast("Saved."); }} />`}`;
 }

@@ -340,3 +340,6 @@ section:first-child { padding-top: 8px; }
 .decided .link { margin-left: auto; }
 
 .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--frost); border-top-color: var(--needle); animation: spin .8s linear infinite; display: inline-block; }
+
+.client-name { margin: 2px 0 4px; word-break: break-word; }
+.block { display: block; }
