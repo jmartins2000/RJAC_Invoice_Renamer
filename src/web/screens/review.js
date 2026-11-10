@@ -23,9 +23,9 @@ export function Preview({ pages, qr, loading, compact = false }) {
           </div>`)}
         </div>`}
       ${!compact && pages && pages.length > 0 && html`<div class="zoom">
-        <button title="Zoom out" onClick=${() => setZoom(Math.max(0.5, zoom / 1.25))}><${Icon} name="minus" size=${14} /></button>
+        <button title="Zoom out" onClick=${() => setZoom((z) => Math.max(0.5, z / 1.25))}><${Icon} name="minus" size=${14} /></button>
         <button class="zoom-pct" title="Fit" onClick=${() => setZoom(1)}>${Math.round(zoom * 100)}%</button>
-        <button title="Zoom in" onClick=${() => setZoom(Math.min(4, zoom * 1.25))}><${Icon} name="plus" size=${14} /></button>
+        <button title="Zoom in" onClick=${() => setZoom((z) => Math.min(4, z * 1.25))}><${Icon} name="plus" size=${14} /></button>
       </div>`}
     </div>`;
 }

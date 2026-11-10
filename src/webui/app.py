@@ -1,5 +1,6 @@
 """The app window: a native window showing the HTML screens in src/web/ (WebKit on macOS,
 Edge WebView2 on Windows), so text, icons and previews render crisply like the designs."""
+import mimetypes
 import os
 import sys
 
@@ -36,6 +37,12 @@ def create(api=None, debug=False):
 
 
 def start(func=None, args=None, debug=False):
+    # The built-in server labels files by extension. On Windows Python reads those labels from the
+    # registry, which often gets .js wrong; Edge WebView2 then refuses to run the page's modules.
+    for ext in (".js", ".mjs"):
+        mimetypes.add_type("text/javascript", ext)
+    mimetypes.add_type("text/css", ".css")
+    mimetypes.add_type("font/woff2", ".woff2")
     gui = "edgechromium" if sys.platform == "win32" else None
     try:
         webview.start(func, args, debug=debug, http_server=True, private_mode=False, gui=gui)
