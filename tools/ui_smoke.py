@@ -278,7 +278,7 @@ try:
         _f.write("Data Emissão;NIF Emitente;Nome Emitente;Tipo;Nº Fatura;Valor Total\n"
                  "06-10-2026;517875845;Quociente Invencível Lda;Fatura;FT A/29;60.000,00\n"
                  "14-10-2026;503504564;EDP Comercial;Fatura;FT 2026/88123;84,12\n"
-                 "20-10-2026;500000009;Fornecedor Sem Talão;Fatura;FT X/1;12,30\n")
+                 "20-10-2026;500000009;Fornecedor Sem Talão;Fatura;FT ZZ/999;12,30\n")
     ef.import_files(inv, [_exp])
     app.show_efatura(inv); pump(1.5)
     _r = app.screen.result

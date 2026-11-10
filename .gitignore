@@ -39,3 +39,4 @@ feedback_worker/.wrangler/
 feedback_worker/node_modules/
 .wrangler/
 .worktrees/
+.DS_Store
