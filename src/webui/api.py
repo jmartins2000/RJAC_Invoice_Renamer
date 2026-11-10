@@ -591,7 +591,7 @@ class Api:
     def efatura_import(self, path):
         chosen = self._window.create_file_dialog(
             webview.FileDialog.OPEN, allow_multiple=True,
-            file_types=("e-Fatura export (*.csv;*.txt)", "All files (*.*)"))
+            file_types=("Exported files (*.csv;*.txt)", "All files (*.*)"))  # labels: letters and spaces only
         if not chosen:
             return None
         paths = list(chosen) if isinstance(chosen, (list, tuple)) else [chosen]

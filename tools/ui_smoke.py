@@ -58,6 +58,14 @@ history.save(history.fingerprint(_photo_path), {"date": "2026-10-20", "total_val
              "invoice_number": "FT 9/2026", "supplier": "Galp Energia"}, "read", _photo_path)
 
 errors = []
+# Every file-dialog filter must be one pywebview accepts (a bad one only fails when clicked)
+import re as _re  # noqa: E402
+from webview.util import parse_file_type  # noqa: E402
+for _ft in _re.findall(r'"([^"]*\(\*[^"]*\))"', open(os.path.join(ROOT, "src", "webui", "api.py"), encoding="utf-8").read()):
+    try:
+        parse_file_type(_ft)
+    except ValueError as _e:
+        errors.append(f"bad file dialog filter: {_e}")
 # Official AT QR code on a receipt image, remembered with a wrong year (from an old version)
 import zxingcpp  # noqa: E402
 from src.services import qr_at  # noqa: E402

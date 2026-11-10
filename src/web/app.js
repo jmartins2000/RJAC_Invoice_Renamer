@@ -1,7 +1,7 @@
 // New interface: Preact + htm (no build step), talking to Python through pywebview's js_api.
 import { render } from "./vendor/preact.mjs";
 import { useEffect, useState } from "./vendor/hooks.mjs";
-import { api, GlobalLayers, html, usePy } from "./ui.js";
+import { api, GlobalLayers, html, toast, usePy } from "./ui.js";
 import { Done, Home, Welcome } from "./screens/home.js";
 import { Folder } from "./screens/folder.js";
 import { Review } from "./screens/review.js";
@@ -30,6 +30,11 @@ function App() {
       document.documentElement.dataset.platform = i.platform;
       setRoute(i.has_key ? { name: "home" } : { name: "welcome" });
       api.start_background();
+    });
+    // Never fail silently: if anything goes wrong behind a button, say so.
+    window.addEventListener("unhandledrejection", (e) => {
+      const msg = String((e.reason && (e.reason.message || e.reason)) || "unknown error").split("\n").pop();
+      toast(`Something went wrong: ${msg}. Please send feedback (speech bubble, top right).`, "warn");
     });
     const open = () => setFeedback(true);
     window.addEventListener("open-feedback", open);
