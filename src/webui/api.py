@@ -37,7 +37,7 @@ class Api:
         return len(history.new_pdfs(path)) if os.path.isdir(path) else 0
 
     def add_folder(self):
-        chosen = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        chosen = self.window.create_file_dialog(webview.FileDialog.FOLDER)
         if not chosen:
             return None
         path = os.path.abspath(chosen[0] if isinstance(chosen, (list, tuple)) else chosen)
