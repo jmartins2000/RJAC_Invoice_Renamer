@@ -124,7 +124,11 @@ export function GlobalLayers() {
   const [t, setT] = useState(null);
   confirmSetter = setC;
   toastSetter = setT;
-  useEffect(() => { if (t) { const id = setTimeout(() => setT(null), 4200); return () => clearTimeout(id); } }, [t]);
+  useEffect(() => {
+    if (!t) return;
+    api.log_ui(`popup (${t.kind}): ${JSON.stringify(t.text)} on ${ctx.screen}`).catch(() => {});
+    const id = setTimeout(() => setT(null), 4200); return () => clearTimeout(id);
+  }, [t]);
   const close = (v) => { c.resolve(v); setC(null); };
   return html`
     ${c && html`<${Modal} onClose=${() => close(false)} width=${440}>

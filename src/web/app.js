@@ -32,8 +32,12 @@ function App() {
       api.start_background();
     });
     // Never fail silently: if anything goes wrong behind a button, say so.
+    window.addEventListener("error", (e) => {
+      api.log_ui(`page error: ${e.message} at ${e.filename}:${e.lineno}:${e.colno}`).catch(() => {});
+    });
     window.addEventListener("unhandledrejection", (e) => {
-      const msg = String((e.reason && (e.reason.message || e.reason)) || "unknown error").split("\n").pop();
+      api.log_ui(`unhandled: ${(e.reason && (e.reason.stack || e.reason.message)) || e.reason}`).catch(() => {});
+      const msg = String((e.reason && (e.reason.message || e.reason)) || "unknown error").trim().split("\n").pop() || "unknown error";
       toast(`Something went wrong: ${msg}. Please send feedback (speech bubble, top right).`, "warn");
     });
     const open = () => setFeedback(true);

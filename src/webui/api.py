@@ -130,6 +130,11 @@ class Api:
         import webbrowser
         webbrowser.open(url)
 
+    def log_ui(self, message):
+        """The page reports popups and errors here, so they show in the terminal / logs."""
+        print(f"[ui] {str(message)[:2000]}", flush=True)
+        return True
+
     def copy_text(self, text):
         """Clipboard via the OS (the web view's clipboard API needs permissions)."""
         try:
