@@ -19,6 +19,20 @@ from src.services import history
 
 ATCUD = re.compile(r"^[A-Z0-9]{8,}-\d+$", re.I)
 
+# The accountant's status codes for each e-Fatura document (as in his "Conferência EF" workbooks:
+# typed in the "INSERIR CÓD." column, colour per code). Colours are his conditional formatting.
+CODES = [
+    {"code": 1, "label": "DOC. OK", "color": "00B050", "text": "FFFFFF"},
+    {"code": 2, "label": "EM ANÁLISE", "color": "7030A0", "text": "FFFFFF"},
+    {"code": 3, "label": "SEM DOC. Contabilizado. Aguarda 1ª / 2ª via", "color": "99FF66", "text": "000000"},
+    {"code": 4, "label": "SEM DOC. Não Contabilizado", "color": "7F7F7F", "text": "FFFFFF"},
+    {"code": 5, "label": "NÃO ELEGÍVEL", "color": "404040", "text": "FFFFFF"},
+    {"code": 6, "label": "PESQUISAR E IMPRIMIR", "color": "00B0F0", "text": "FFFFFF"},
+    {"code": 7, "label": "IMPRIMIR EF", "color": "0070C0", "text": "FFFFFF"},
+    {"code": 8, "label": "Standby", "color": "", "text": "000000"},
+]
+CODE_LABEL = {c["code"]: c["label"] for c in CODES}
+
 
 def _plain(s):
     """Lowercase, no accents, single spaces — for matching column names."""
@@ -78,6 +92,11 @@ def _date(s):
         except ValueError:
             continue
     return ""
+
+
+def is_cancelled(r):
+    """'Documento Anulado pelo Emitente': the supplier cancelled it, so no receipt is expected."""
+    return "anulad" in _plain(r.get("status"))
 
 
 def norm_number(s):
@@ -228,14 +247,17 @@ def compare(project, start=None, end=None):
       differ      [(invoice, efatura_row, [differences])]
       missing     [efatura_row]  — in e-Fatura, no receipt in the folder
       not_in_ef   [invoice]      — receipt in the folder, not in e-Fatura
+      cancelled   [efatura_row]  — cancelled by the supplier (not matched, nothing expected)
     """
     invoices = history.query(start, end, project)
-    ef = rows(project, start, end)
+    all_rows = rows(project, start, end)
+    ef = [r for r in all_rows if not is_cancelled(r)]
     by_number = {}
     for i, r in enumerate(ef):
         by_number.setdefault((r["supplier_nif"], norm_number(r["number"])), []).append(i)
     used = set()
-    result = {"matched": [], "differ": [], "missing": [], "not_in_ef": []}
+    result = {"matched": [], "differ": [], "missing": [], "not_in_ef": [],
+              "cancelled": [r for r in all_rows if is_cancelled(r)]}
 
     def nif_of(inv):
         v = inv["values"]
@@ -322,3 +344,46 @@ def resolve(project, item, resolution):
         else:
             db.execute("DELETE FROM efatura_resolved WHERE project=? AND item=?", (os.path.abspath(project), item))
         db.commit()
+
+
+# ------------------------------------------------------------------ status code per e-Fatura document
+def _cdb():
+    db = _db()
+    db.execute("CREATE TABLE IF NOT EXISTS efatura_codes (project TEXT, row TEXT, code INTEGER, at TEXT, "
+               "PRIMARY KEY (project, row))")
+    return db
+
+
+def codes(project):
+    """{row_key: code} chosen by the user for this client."""
+    with history._lock:
+        return dict(_cdb().execute("SELECT row, code FROM efatura_codes WHERE project=?",
+                                   (os.path.abspath(project),)).fetchall())
+
+
+def set_code(project, key, code):
+    """code: 1..8 (see CODES); None removes it."""
+    with history._lock:
+        db = _cdb()
+        if code:
+            db.execute("INSERT OR REPLACE INTO efatura_codes VALUES (?,?,?,?)",
+                       (os.path.abspath(project), key, int(code),
+                        datetime.datetime.now().isoformat(timespec="seconds")))
+        else:
+            db.execute("DELETE FROM efatura_codes WHERE project=? AND row=?", (os.path.abspath(project), key))
+        db.commit()
+
+
+def monthly_totals(rows_):
+    """Per month: documents, VAT, total, base. Credit notes subtract; cancelled documents are left out."""
+    out = {}
+    for r in rows_:
+        if is_cancelled(r) or not r.get("date"):
+            continue
+        m = out.setdefault(r["date"][:7], {"month": r["date"][:7], "count": 0, "vat": 0.0, "total": 0.0, "base": 0.0})
+        sign = -1 if r.get("credit_note") else 1
+        m["count"] += 1
+        m["vat"] += sign * (r.get("vat") or 0)
+        m["total"] += sign * (r.get("total") or 0)
+        m["base"] += sign * (r["base"] if r.get("base") is not None else (r.get("total") or 0) - (r.get("vat") or 0))
+    return [out[k] for k in sorted(out)]

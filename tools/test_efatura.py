@@ -130,6 +130,65 @@ else:
     check(len(probable) == 1, f"1 invoice matched as 'probable' by NIF/date/total (got {len(probable)})")
     check(len(res["matched"]) == n - 3 - 1, f"{n - 4} matched in total (got {len(res['matched'])})")
 
+print("\nPart 3 — status codes, cancelled documents, Excel in the accountant's layout")
+from openpyxl import load_workbook  # noqa: E402
+from src.webui.api import Api  # noqa: E402
+c3 = os.path.join(WORK, "Cliente Codigos")
+os.makedirs(c3)
+history.add_project(c3)
+recibo = os.path.join(c3, "recibo.pdf")
+open(recibo, "wb").write(b"%PDF-1.4 test")
+history.save(history.fingerprint(recibo), {"date": "2026-01-05", "total_value": 50.0, "invoice_number": "FT A/1",
+             "supplier": "Livraria", "_nif": "500000001"}, "confirmed", recibo, project=c3)
+exp3 = write("export_codes.csv",
+             "Setor;Emitente;Nº Fatura / ATCUD;Tipo;Data Emissão;Total;IVA;Base Tributável;Situação\n"
+             "Outros;500000001 - Livraria Exemplo Lda;FT A/1 / JFAB12CD-1;Fatura;05-01-2026;50,00;9,35;40,65;Registado\n"
+             "Outros;500000002 - Sem Recibo Lda;FT B/2 / JFAB12CD-2;Fatura;20-01-2026;100,00;18,70;81,30;Registado\n"
+             "Outros;500000003 - Anulada Lda;FT C/3 / JFAB12CD-3;Fatura;21-01-2026;500,00;0;500,00;"
+             "Documento Anulado pelo Emitente\n"
+             "Outros;500000004 - Credito SA;NC D/4 / JFAB12CD-4;Nota de crédito;03-02-2026;10,00;1,87;8,13;Registado\n")
+efatura.import_files(c3, [exp3])
+api = Api()
+view = api.efatura_view(c3)
+kinds = {i["ef"]["nif"] if i["ef"] else "receipt": i for i in view["items"]}
+check(kinds["500000003"]["kind"] == "cancelled", "cancelled document is its own case, not 'no receipt'")
+check(kinds["500000001"]["kind"] == "matched" and kinds["500000001"]["code"] == 1 and kinds["500000001"]["code_auto"],
+      "matched document gets code 1 automatically")
+check(kinds["500000002"]["code"] is None, "document without receipt has no code yet")
+api.efatura_set_code(c3, kinds["500000002"]["id"], 3)
+api.efatura_set_code(c3, kinds["500000001"]["id"], 2)
+view = api.efatura_view(c3)
+kinds = {i["ef"]["nif"]: i for i in view["items"] if i["ef"]}
+check(kinds["500000002"]["code"] == 3 and not kinds["500000002"]["code_auto"], "chosen code is kept")
+check(kinds["500000001"]["code"] == 2, "automatic code can be changed")
+api.efatura_set_code(c3, kinds["500000001"]["id"], None)
+back = {i["ef"]["nif"]: i for i in api.efatura_view(c3)["items"] if i["ef"]}["500000001"]
+check(back["code"] == 1 and back["code_auto"], "removing a chosen code goes back to the automatic one")
+months = efatura.monthly_totals(efatura.rows(c3))
+check([m["month"] for m in months] == ["2026-01", "2026-02"], "monthly totals per month")
+check(months[0]["count"] == 2 and abs(months[0]["total"] - 150) < 0.001, "cancelled document left out of the totals")
+check(abs(months[1]["total"] + 10) < 0.001, "credit note subtracts")
+out_xlsx = os.path.join(WORK, "out.xlsx")
+api._ask_save = lambda *a, **k: out_xlsx
+check(api.efatura_export(c3) is True, "export runs")
+wb = load_workbook(out_xlsx)
+ws = wb["Conferência"]
+head = [c.value for c in ws[1]]
+check(head[:13] == ["SETOR", "EMITENTE", "Nº FATURA / ATCUD", "TIPO", "DATA EMISSÃO", "TOTAL", "IVA",
+                    "BASE TRIBUTÁVEL", "SITUAÇÃO", "COM. EMITENTE", "INSERIR CÓD.", "DESCRITIVO CHECK", "MÊS"],
+      "first sheet has the accountant's columns")
+data = {r[1]: r for r in ws.iter_rows(min_row=2, values_only=True)}
+check(len(data) == 4, f"one row per e-Fatura document (got {len(data)})")
+r2 = data["500000002 - Sem Recibo Lda"]
+check(r2[2] == "FT B/2 / JFAB12CD-2" and r2[10] == 3 and r2[11].startswith("SEM DOC. Contabilizado") and r2[12] == 1,
+      "number with ATCUD, code number + description, month")
+r1 = data["500000001 - Livraria Exemplo Lda"]
+check(r1[10] == 1 and r1[13] == "recibo.pdf", "matched row: code 1 and the receipt's file")
+check(ws.cell(row=2, column=1).fill.start_color.rgb.endswith("00B050") or
+      any(ws.cell(row=i, column=1).fill.start_color.rgb.endswith("00B050") for i in range(2, 6)),
+      "code 1 rows coloured green like his workbook")
+check("Totais mensais" in wb.sheetnames, "monthly totals sheet")
+
 shutil.rmtree(WORK, ignore_errors=True)
 print("\nALL OK" if not failures else f"\n{len(failures)} FAILED")
 sys.exit(1 if failures else 0)

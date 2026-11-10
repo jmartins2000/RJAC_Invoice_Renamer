@@ -1,6 +1,6 @@
 // e-Fatura reconciliation: the client's receipts vs. the AT's list, one case at a time.
 import { useEffect, useState } from "../vendor/hooks.mjs";
-import { api, ctx, FeedbackButton, html, Icon, niceDate, plain2, toast, TopBar } from "../ui.js";
+import { api, ctx, FeedbackButton, html, Icon, Menu, niceDate, plain2, toast, TopBar } from "../ui.js";
 import { PeriodMenu } from "./folder.js";
 import { Preview } from "./review.js";
 
@@ -9,20 +9,45 @@ const KIND = {
   missing: { chip: "No receipt", title: "No receipt", cls: "amber" },
   not_in_ef: { chip: "Not in e-Fat.", title: "Not in e-Fatura", cls: "amber" },
   matched: { chip: "Matched", title: "✓ Matched", cls: "green" },
+  cancelled: { chip: "Cancelled", title: "Cancelled by the supplier", cls: "grey" },
 };
 const DECIDED = { not_needed: "Marked as not needed", kept: "Kept the receipt's values", registered: "Marked as registered in e-Fatura" };
-const FILTERS = [["attention", "Needs attention"], ["missing", "No receipt"], ["not_in_ef", "Not in e-Fatura"], ["differ", "Differs"], ["all", "All"]];
+const FILTERS = [["attention", "Needs attention"], ["missing", "No receipt"], ["not_in_ef", "Not in e-Fatura"], ["differ", "Differs"],
+  ["cancelled", "Cancelled"], ["all", "All"]];
 
-const open = (i) => i.kind !== "matched" && !i.resolution;
+// Open = still needs a decision: no code chosen (e-Fatura documents) or no decision (receipts not in e-Fatura).
+const open = (i) => i.kind !== "matched" && i.kind !== "cancelled" && !i.resolution && !(i.code && !i.code_auto);
+
+/** The accountant's code for an e-Fatura document: small coloured square with the number. */
+export function CodeBadge({ item, codes }) {
+  const c = item.code && codes.find((x) => x.code === item.code);
+  if (!c) return html`<span class="code-badge none"></span>`;
+  return html`<span class=${"code-badge" + (item.code_auto ? " auto" : "")} title=${c.label + (item.code_auto ? " (automatic: matched)" : "")}
+    style=${c.color ? { background: "#" + c.color, color: "#" + c.text, borderColor: "#" + c.color } : {}}>${c.code}</span>`;
+}
+
+function CodePicker({ item, codes, onPick, busy }) {
+  const c = item.code && codes.find((x) => x.code === item.code);
+  const dot = (x) => html`<span class="code-dot" style=${x.color ? { background: "#" + x.color, borderColor: "#" + x.color } : {}}></span>`;
+  const options = codes.map((x) => ({ value: x.code, label: html`${dot(x)}${x.code} · ${x.label}` }));
+  if (item.code && !item.code_auto) options.push({ value: 0, label: "Remove the code", sep: true });
+  return html`<div class="code-row">
+    <b>Code</b>
+    <${Menu} width=${320} value=${item.code} options=${options} onChange=${(v) => !busy && onPick(v || null)}
+      label=${c ? html`${dot(c)}${c.code} · ${c.label}` : "Choose a code…"} />
+    ${item.code_auto && html`<small class="muted">Set automatically because the receipt matches. Change it if needed.</small>`}
+  </div>`;
+}
 const main = (i) => i.ef || i.receipt;
 
-function Detail({ item, path, reload }) {
+function Detail({ item, path, reload, codes }) {
   const [thumb, setThumb] = useState(null);
   const [busy, setBusy] = useState(false);
   const rc = item.receipt, ef = item.ef;
   useEffect(() => { setThumb(null); if (rc) api.efatura_thumb(rc.path).then(setThumb); }, [item.id]);
   const act = async (fn) => { setBusy(true); try { await fn(); } finally { setBusy(false); } await reload(); };
   const resolve = (r) => act(() => api.efatura_resolve(path, item.id, r));
+  const setCode = (c) => act(() => api.efatura_set_code(path, item.id, c));
   const copy = async () => {
     const d = main(item);
     const text = [`Supplier: ${d.supplier}`, `NIF: ${d.nif}`, `Document: ${d.number}`, `Date: ${d.date}`, `Total: ${plain2(d.total)}`,
@@ -37,7 +62,8 @@ function Detail({ item, path, reload }) {
     ["Total", rc && plain2(rc.total), ef && plain2(ef.total), diffTotal]];
   const how = item.kind === "matched" ? (item.how === "probable" ? "Probable match: same supplier, date and total" : "Matched by NIF + document number")
     : item.kind === "differ" ? "Matched by NIF + document number"
-    : item.kind === "missing" ? "In e-Fatura, but no file in this folder" : "In the folder, but the AT doesn't have it";
+    : item.kind === "missing" ? "In e-Fatura, but no file in this folder"
+    : item.kind === "cancelled" ? (ef && ef.status) || "Cancelled" : "In the folder, but the AT doesn't have it";
   let text, actions;
   if (item.kind === "differ") {
     const parts = [];
@@ -47,9 +73,10 @@ function Detail({ item, path, reload }) {
     actions = html`<button class="btn solid" disabled=${busy} onClick=${() => act(async () => { const r = await api.efatura_use_values(path, item.id); if (r.error) toast(r.error, "warn"); })}>Use e-Fatura values</button>
       <button class="btn" disabled=${busy} onClick=${() => resolve("kept")}>Keep receipt values</button>`;
   } else if (item.kind === "missing") {
-    text = "The AT has this invoice for the client, but there's no receipt for it in the folder. Find it (it will be read and matched), or mark it as not needed.";
-    actions = html`<button class="btn solid" disabled=${busy} onClick=${() => act(async () => { const r = await api.efatura_find_receipt(path, item.id); if (r && r.error) toast(r.error, "warn"); else if (r) toast(`Added "${r.file}" to the folder.`); })}>${busy ? "Reading…" : "Find the receipt…"}</button>
-      <button class="btn" disabled=${busy} onClick=${() => resolve("not_needed")}>Not needed</button>`;
+    text = "The AT has this invoice for the client, but there's no receipt for it in the folder. Find it (it will be read and matched), or give it a code.";
+    actions = html`<button class="btn solid" disabled=${busy} onClick=${() => act(async () => { const r = await api.efatura_find_receipt(path, item.id); if (r && r.error) toast(r.error, "warn"); else if (r) toast(`Added "${r.file}" to the folder.`); })}>${busy ? "Reading…" : "Find the receipt…"}</button>`;
+  } else if (item.kind === "cancelled") {
+    text = "The supplier cancelled this document in e-Fatura, so no receipt is expected. It still appears in the Excel export.";
   } else if (item.kind === "not_in_ef") {
     text = "The AT has no record of this receipt for the client: usually the client's NIF wasn't on it, or the supplier didn't report it. If it should count, register it in e-Fatura (Adquirente › Registar faturas) with these details.";
     actions = html`<button class="btn solid" disabled=${busy} onClick=${() => resolve("registered")}>Registered</button>
@@ -70,7 +97,8 @@ function Detail({ item, path, reload }) {
         <div class="ef-thumb">${rc ? html`<${Preview} pages=${thumb && thumb.pages} qr=${thumb && thumb.qr} loading=${!thumb} compact=${true} />`
           : html`<div class="no-receipt"><${Icon} name="file" size=${20} /><small>No receipt</small></div>`}</div>
         <div class="ef-text">
-          ${item.resolution && item.resolution !== "matched" ? html`
+          ${item.ef_key && html`<${CodePicker} item=${item} codes=${codes} onPick=${setCode} busy=${busy} />`}
+          ${item.resolution && item.resolution !== "matched" && item.resolution !== "cancelled" ? html`
             <div class="decided"><${Icon} name="check" size=${14} stroke=${2.5} /> ${DECIDED[item.resolution] || "Resolved"}
               <button class="link" onClick=${() => resolve(null)}>Undo</button></div>` : html`
             <p class="muted">${text}</p>
@@ -106,6 +134,7 @@ export function Efatura({ path, go }) {
   const exp = async () => { const ok = await api.efatura_export(path, period.start, period.end, period.short); if (ok !== null) setExported(ok); };
 
   const items = view ? view.items : [];
+  const codes = (view && view.codes) || [];
   const count = (f) => items.filter((i) => f === "all" ? true : f === "attention" ? open(i) : i.kind === f).length;
   const shown = items.filter((i) => filter === "all" ? true : filter === "attention" ? open(i) : i.kind === filter);
   const selected = shown.find((i) => i.id === sel) || shown[0];
@@ -134,12 +163,13 @@ export function Efatura({ path, go }) {
             ${view && shown.length === 0 && html`<p class="muted pad">${filter === "attention" ? (items.length ? "All resolved for this period. 🎉" : "No invoices in this period.") : "None."}</p>`}
             ${shown.map((i) => { const d = main(i); return html`
               <div class=${"ef-item" + (selected && selected.id === i.id ? " on" : "")} onClick=${() => setSel(i.id)}>
-                <span class=${"chip small " + KIND[i.kind].cls + (open(i) || i.kind === "matched" ? "" : " faded")}>${i.resolution && i.kind !== "matched" ? "✓ Done" : KIND[i.kind].chip}</span>
+                <span class=${"chip small " + KIND[i.kind].cls + (open(i) || i.kind === "matched" || i.kind === "cancelled" ? "" : " faded")}>${!open(i) && i.kind !== "matched" && i.kind !== "cancelled" ? "✓ Done" : KIND[i.kind].chip}</span>
                 <div class="ef-item-text"><b>${d.supplier || d.nif}</b><small class="muted">${niceDate(d.date, true)} · ${d.number}</small></div>
                 <span class=${"ef-total" + (i.kind === "differ" ? " strong" : "")}>${plain2(d.total)}</span>
+                <${CodeBadge} item=${i} codes=${codes} />
               </div>`; })}
           </div>
         </div>
-        <div class="ef-right">${selected ? html`<${Detail} key=${selected.id} item=${selected} path=${path} reload=${load} />` : view && html`<p class="muted pad">Nothing selected.</p>`}</div>
+        <div class="ef-right">${selected ? html`<${Detail} key=${selected.id} item=${selected} path=${path} reload=${load} codes=${codes} />` : view && html`<p class="muted pad">Nothing selected.</p>`}</div>
       </div>`}`;
 }

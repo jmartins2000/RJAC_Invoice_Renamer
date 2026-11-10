@@ -6,6 +6,7 @@ page with `_emit(event, data)` → a "py" DOM event. The services (history, Gemi
 are UI-independent.
 """
 import base64
+import datetime
 import io
 import json
 import os
@@ -605,12 +606,14 @@ class Api:
                            "(duplicates are ignored)."}
 
     def efatura_view(self, path, start=None, end=None):
-        """Every case for the period, with its status, the receipt/e-Fatura values and what was decided."""
+        """Every case for the period, with its status, the receipt/e-Fatura values, what was decided and
+        the status code of each e-Fatura document (matched ones are 1 · DOC. OK unless changed)."""
         stored = efatura.stored_count(path)
         if not stored:
-            return {"stored": 0, "items": []}
+            return {"stored": 0, "items": [], "codes": efatura.CODES}
         result = efatura.compare(path, start, end)
         done = efatura.resolutions(path)
+        chosen = efatura.codes(path)
         items = []
 
         def receipt(inv):
@@ -624,26 +627,47 @@ class Api:
         def ef_row(r):
             return {"supplier": r["supplier_name"], "nif": r["supplier_nif"], "number": r["number"],
                     "date": r["date"], "total": r["total"], "status": r.get("status") or "",
-                    "type": r.get("type") or "", "atcud": r.get("atcud") or ""}
+                    "type": r.get("type") or "", "atcud": r.get("atcud") or "", "sector": r.get("sector") or "",
+                    "vat": r.get("vat"), "base": r.get("base"), "credit_note": bool(r.get("credit_note"))}
+
+        def add(item, r, auto=None):
+            if r is not None:
+                item["ef_key"] = efatura.row_key(r)
+                code = chosen.get(item["ef_key"])
+                item["code"], item["code_auto"] = (code, False) if code else (auto, auto is not None)
+            else:
+                item["ef_key"], item["code"], item["code_auto"] = None, None, False
+            items.append(item)
 
         for inv, r, how in result["matched"]:
-            items.append({"id": efatura.invoice_key(inv), "kind": "matched", "how": how,
-                          "receipt": receipt(inv), "ef": ef_row(r), "resolution": "matched"})
+            add({"id": efatura.invoice_key(inv), "kind": "matched", "how": how,
+                 "receipt": receipt(inv), "ef": ef_row(r), "resolution": "matched"}, r, auto=1)
         for inv, r, diffs in result["differ"]:
             key = efatura.invoice_key(inv)
-            items.append({"id": key, "kind": "differ", "diffs": diffs, "receipt": receipt(inv), "ef": ef_row(r),
-                          "resolution": done.get(key)})
+            add({"id": key, "kind": "differ", "diffs": diffs, "receipt": receipt(inv), "ef": ef_row(r),
+                 "resolution": done.get(key)}, r, auto=1 if done.get(key) else None)
         for r in result["missing"]:
             key = efatura.row_key(r)
-            items.append({"id": key, "kind": "missing", "receipt": None, "ef": ef_row(r), "resolution": done.get(key)})
+            add({"id": key, "kind": "missing", "receipt": None, "ef": ef_row(r), "resolution": done.get(key)}, r)
+        for r in result["cancelled"]:
+            key = efatura.row_key(r)
+            add({"id": key, "kind": "cancelled", "receipt": None, "ef": ef_row(r), "resolution": "cancelled"}, r)
         for inv in result["not_in_ef"]:
             key = efatura.invoice_key(inv)
-            items.append({"id": key, "kind": "not_in_ef", "receipt": receipt(inv), "ef": None,
-                          "resolution": done.get(key)})
-        order = {"differ": 0, "missing": 1, "not_in_ef": 2, "matched": 3}
+            add({"id": key, "kind": "not_in_ef", "receipt": receipt(inv), "ef": None,
+                 "resolution": done.get(key)}, None)
+        order = {"differ": 0, "missing": 1, "not_in_ef": 2, "matched": 3, "cancelled": 4}
         items.sort(key=lambda i: (order[i["kind"]], (i["ef"] or i["receipt"])["date"] or ""))
         self._ef_cache[path] = {i["id"]: i for i in items}
-        return {"stored": stored, "items": items, "count_ef": len(efatura.rows(path, start, end))}
+        return {"stored": stored, "items": items, "codes": efatura.CODES,
+                "count_ef": len(efatura.rows(path, start, end))}
+
+    def efatura_set_code(self, path, item_id, code):
+        item = self._ef_cache.get(path, {}).get(item_id)
+        if not item or not item.get("ef_key"):
+            return False
+        efatura.set_code(path, item["ef_key"], code)
+        return True
 
     def efatura_resolve(self, path, item_id, resolution):
         efatura.resolve(path, item_id, resolution)
@@ -702,8 +726,11 @@ class Api:
         return {"ok": True, "file": os.path.basename(target)}
 
     def efatura_export(self, path, start=None, end=None, short=""):
+        """Excel for the accountant: first sheet in his "Conferência EF" layout (one row per e-Fatura
+        document, code in "INSERIR CÓD." and its description, coloured like his workbook), then monthly
+        totals, then the cases that need a look."""
         from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill
+        from openpyxl.styles import Alignment, Font, PatternFill
         view = self.efatura_view(path, start, end)
         if not view["items"]:
             return None
@@ -711,27 +738,76 @@ class Api:
         out = self._ask_save(path, f"{name}.xlsx")
         if not out:
             return None
-        sheets = [("differ", "Values differ"), ("missing", "In e-Fatura, no receipt"),
-                  ("not_in_ef", "Receipt not in e-Fatura"), ("matched", "Matched")]
+        head_font = Font(bold=True, color="FFFFFF")
+        head_fill = PatternFill(start_color="204E27", end_color="204E27", fill_type="solid")
+        by_code = {c["code"]: c for c in efatura.CODES}
+
+        def header(ws, cols, widths):
+            ws.append(cols)
+            for cell in ws[1]:
+                cell.font, cell.fill = head_font, head_fill
+                cell.alignment = Alignment(wrap_text=True, vertical="center")
+            for i, w in enumerate(widths):
+                ws.column_dimensions[chr(65 + i)].width = w
+            ws.freeze_panes = "A2"
+
+        def as_date(iso):
+            try:
+                return datetime.date.fromisoformat(iso) if iso else None
+            except ValueError:
+                return iso
+
         wb = Workbook()
-        wb.remove(wb.active)
+        ws = wb.active
+        ws.title = "Conferência"
+        header(ws, ["SETOR", "EMITENTE", "Nº FATURA / ATCUD", "TIPO", "DATA EMISSÃO", "TOTAL", "IVA",
+                    "BASE TRIBUTÁVEL", "SITUAÇÃO", "COM. EMITENTE", "INSERIR CÓD.", "DESCRITIVO CHECK", "MÊS",
+                    "FICHEIRO"], (22, 44, 34, 18, 13, 12, 11, 13, 20, 10, 9, 30, 6, 40))
+        docs = sorted((i for i in view["items"] if i["ef"]), key=lambda i: (i["ef"]["date"] or "", i["ef"]["nif"]))
+        for i in docs:
+            ef = i["ef"]
+            number = f"{ef['number']} / {ef['atcud']}" if ef["atcud"] else ef["number"]
+            base = ef["base"] if ef["base"] is not None else (
+                round(ef["total"] - ef["vat"], 2) if ef["vat"] is not None else None)
+            code = i["code"]
+            ws.append([ef["sector"], f"{ef['nif']} - {ef['supplier']}".strip(" -"), number, ef["type"],
+                       as_date(ef["date"]), ef["total"], ef["vat"], base, ef["status"], "", code,
+                       efatura.CODE_LABEL.get(code, ""), int(ef["date"][5:7]) if ef["date"] else None,
+                       (i["receipt"] or {}).get("file") or ""])
+            row = ws[ws.max_row]
+            row[4].number_format = "yyyy-mm-dd"
+            for c in row[5:8]:
+                c.number_format = "#,##0.00"
+            c = by_code.get(code)
+            if c and c["color"]:
+                fill = PatternFill(start_color=c["color"], end_color=c["color"], fill_type="solid")
+                for cell in row[:13]:
+                    cell.fill, cell.font = fill, Font(color=c["text"])
+        ws.auto_filter.ref = f"A1:N{ws.max_row}"
+
+        ws = wb.create_sheet("Totais mensais")
+        header(ws, ["MÊS", "Nº DOCUMENTOS", "IVA", "TOTAL", "BASE TRIBUTÁVEL"], (10, 15, 14, 14, 17))
+        for m in efatura.monthly_totals([efatura_row for efatura_row in efatura.rows(path, start, end)]):
+            ws.append([m["month"], m["count"], round(m["vat"], 2), round(m["total"], 2), round(m["base"], 2)])
+            for c in ws[ws.max_row][2:5]:
+                c.number_format = "#,##0.00"
+        ws.append([])
+        ws.append(["Notas de crédito a subtrair; documentos anulados pelo emitente não contam."])
+
+        sheets = [("differ", "Valores diferentes"), ("missing", "Sem recibo na pasta"),
+                  ("not_in_ef", "Recibo fora do e-Fatura")]
         for kind, title in sheets:
             ws = wb.create_sheet(title[:31])
-            ws.append(["Date", "Supplier", "NIF", "Document", "Total (receipt)", "Total (e-Fatura)", "File",
-                       "Note", "Decision"])
-            for cell in ws[1]:
-                cell.font = Font(bold=True, color="FFFFFF")
-                cell.fill = PatternFill(start_color="204E27", end_color="204E27", fill_type="solid")
+            header(ws, ["Data", "Fornecedor", "NIF", "Documento", "Total (recibo)", "Total (e-Fatura)",
+                        "Ficheiro", "Nota", "Decisão"], (12, 34, 12, 30, 14, 14, 36, 40, 34))
             for i in (x for x in view["items"] if x["kind"] == kind):
                 rc, ef = i["receipt"] or {}, i["ef"] or {}
-                note = "; ".join(i.get("diffs") or []) or ("probable (same supplier, date and total)"
-                                                           if i.get("how") == "probable" else "")
+                decision = efatura.CODE_LABEL.get(i["code"]) or {
+                    "not_needed": "Not needed", "kept": "Kept receipt values", "registered": "Registered"
+                }.get(i["resolution"] or "", "")
                 ws.append([ef.get("date") or rc.get("date"), ef.get("supplier") or rc.get("supplier"),
                            ef.get("nif") or rc.get("nif"), ef.get("number") or rc.get("number"),
-                           rc.get("total"), ef.get("total"), rc.get("file") or "", note,
-                           {"not_needed": "Not needed", "kept": "Kept receipt values", "registered": "Registered",
-                            "matched": ""}.get(i["resolution"] or "", "")])
-            for col, w in zip("ABCDEFGHI", (12, 34, 12, 30, 14, 14, 36, 40, 18)):
-                ws.column_dimensions[col].width = w
+                           rc.get("total"), ef.get("total"), rc.get("file") or "",
+                           "; ".join(i.get("diffs") or []), decision])
         wb.save(out)
         return True
