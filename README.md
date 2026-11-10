@@ -31,8 +31,15 @@ and reopens by itself. On macOS it opens the new .dmg so you can replace the app
 ```bash
 uv venv -p 3.12 .venv && uv pip install -p .venv -r requirements.txt
 echo "GEMINI_API_KEY=..." > .env      # dev only, gitignored, never bundled
-.venv/bin/python main.py
+.venv/bin/python main.py            # --debug opens the web inspector
 ```
+
+**Interface:** the screens are HTML/CSS/JS in `src/web/` (Preact + htm, vendored, no build step), shown in a
+native window by pywebview (WebKit on macOS, Edge WebView2 on Windows). Every `api.x()` call in the
+page runs `Api.x` in `src/webui/api.py`; the logic lives in `src/services/` (e.g. `review_session.py`).
+To try screens without opening the app window, `python tools/web_dev.py --fake-gemini` serves them to
+a browser (or headless Chrome) backed by the real Python API; use `RJAC_DATA_DIR` for a throwaway
+data folder. `tools/ui_smoke.py` drives the real window and runs in CI only.
 
 **Model choice / accuracy:** `tools/eval_extraction.py` runs extraction on `samples/` (gitignored, real
 invoices) against `samples/ground_truth.json`, e.g. `python tools/eval_extraction.py --model gemini-3.8-flash`.
@@ -57,8 +64,8 @@ The tag must match `__version__`. Update checks read the repo's public Releases
 (`GITHUB_REPO` in `src/version.py`), so the releases must be publicly readable.
 
 **Stable signing on your Mac (optional):** create a self-signed code-signing certificate named
-"RJAC Local Signing" in the login keychain; `build_mac.sh` uses it automatically so macOS permissions
-(Screen Recording for feedback screenshots) survive rebuilds.
+"RJAC Local Signing" in the login keychain; `build_mac.sh` uses it automatically so macOS treats each
+rebuild as the same app.
 
 **Local builds:** `./build_tools/build_mac.sh` (macOS) or `build_tools\build_windows.ps1` (Windows, needs
 Inno Setup 6). Output goes to `dist/`.
