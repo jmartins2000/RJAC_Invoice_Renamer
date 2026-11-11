@@ -250,10 +250,14 @@ def store_rows(project, rows):
         new = 0
         for r in rows:
             nif, num, date = _key(r)
-            new += (nif, num, date) not in known
-            known.add((nif, num, date))
-            db.execute("INSERT OR REPLACE INTO efatura VALUES (?,?,?,?,?,?)",
-                       (project, nif, num, date, json.dumps(r, ensure_ascii=False), now))
+            payload = json.dumps(r, ensure_ascii=False)
+            if (nif, num, date) in known:  # update in place: keeps its position in the list
+                db.execute("UPDATE efatura SET row_json=?, imported_at=? WHERE project=? AND supplier_nif=? "
+                           "AND number=? AND date=?", (payload, now, project, nif, num, date))
+            else:
+                db.execute("INSERT INTO efatura VALUES (?,?,?,?,?,?)", (project, nif, num, date, payload, now))
+                known.add((nif, num, date))
+                new += 1
         db.commit()
     return new
 
@@ -271,7 +275,8 @@ def rows(project, start=None, end=None):
     if end:
         sql += " AND date <= ?"; args.append(end)
     with history._lock:
-        return [json.loads(r[0]) for r in _db().execute(sql + " ORDER BY date", args).fetchall()]
+        # same day: in the order they were imported (= the portal's order, like his sheets)
+        return [json.loads(r[0]) for r in _db().execute(sql + " ORDER BY date, rowid", args).fetchall()]
 
 
 def clear(project):

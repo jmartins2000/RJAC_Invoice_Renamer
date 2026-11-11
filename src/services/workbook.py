@@ -343,7 +343,7 @@ def _new_year_sheet(wb, template_ws, year, layout, first_row, last_row):
         ws.auto_filter.ref = template_ws.auto_filter.ref
     ws.freeze_panes = template_ws.freeze_panes
     data_cols = set(layout["cols"].values()) | ({layout["code_col"]} if layout["code_col"] is not None else set())
-    for r in range(first_row, (last_row or first_row) + 1):
+    for r in range(first_row, ws.max_row + 1):  # every document row (incl. ones written in this export)
         for c in data_cols:
             ws.cell(row=r, column=c + 1).value = None
     # the year shown in the header, if it's written as a plain value
@@ -353,10 +353,11 @@ def _new_year_sheet(wb, template_ws, year, layout, first_row, last_row):
                                                  and str(c.value) == template_ws.title):
                 c.value = year if isinstance(c.value, int) else str(year)
     # keep sheets in year order
-    years = [(int(s.title), s) for s in wb.worksheets if YEAR.match(s.title)]
-    before = [s for y, s in years if y > year]
-    if before:
-        wb.move_sheet(ws, offset=wb.worksheets.index(before[0]) - wb.worksheets.index(ws))
+    years = [(int(s.title), s) for s in wb.worksheets if YEAR.match(s.title) and s is not ws]
+    later = [s for y, s in years if y > year]
+    earlier = [s for y, s in years if y < year]
+    target = wb.worksheets.index(later[0]) if later else (wb.worksheets.index(earlier[-1]) + 1 if earlier else 0)
+    wb.move_sheet(ws, offset=target - wb.worksheets.index(ws))
     return ws
 
 
@@ -395,7 +396,7 @@ def export_workbook(project, out_path):
         data_cols = set(layout["cols"].values()) | ({layout["code_col"]} if layout["code_col"] is not None else set())
         style_row = s["last_row"] or s.get("_start")
         next_row = (s["last_row"] + 1) if s["last_row"] else s.get("_start", layout["header_row"] + 1)
-        for doc in sorted(by_year[year_s], key=lambda d: (d.get("date") or "", d["supplier_nif"])):
+        for doc in by_year[year_s]:  # already by date, then import order
             key = _doc_key(doc)
             code = app_codes.get(key) or (1 if key in auto else None)
             if key in present:
