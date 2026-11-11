@@ -213,6 +213,47 @@ check(history.project(moved) is None and efatura.stored_count(moved) == 0 and no
       "deleting a client removes all its data")
 check(os.path.isdir(moved), "deleting a client leaves its folder alone")
 
+print("\nPart 5 — the accountant's workbook (made-up examples)")
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import workbook_examples  # noqa: E402
+from src.services import workbook  # noqa: E402
+wbx = os.path.join(WORK, "wbx")
+expected = workbook_examples.write_all(wbx)
+for name, e in expected.items():
+    try:
+        d = workbook.read(os.path.join(wbx, name))
+        got = {s["sheet"].replace("Purchases ", ""): {"documents": len(s["documents"]),
+               "coded": sum(1 for x in s["documents"] if x["code"]),
+               "total": round(sum(x["doc"]["total"] for x in s["documents"]), 2)} for s in d["sheets"]}
+    except Exception as ex:  # noqa: BLE001
+        got = {"error": str(ex)}
+    if e["automatic"]:
+        check(got == e["sheets"], f"{name}: {e['what']} → read correctly")
+    else:
+        check(got != e["sheets"], f"{name}: {e['what']} → not guessed (left for the agent / the user)")
+c5 = os.path.join(WORK, "Cliente Workbook")
+os.makedirs(c5)
+history.add_project(c5)
+r5 = workbook.import_workbook(c5, os.path.join(wbx, "new_layout.xlsx"))
+check(r5["documents"] == 80 and r5["client_nif"] == "509999999", "import: documents and client NIF from the workbook")
+check(len(workbook.codes_for(c5)) == 8 and workbook.codes_for(c5)[0]["label"] == "DOC. OK", "the client's code list comes from 'Dados'")
+same = workbook.export_workbook(c5, os.path.join(WORK, "same.xlsx"))
+check(same["added"] == 0 and same["codes_changed"] == 0, "nothing new → nothing added or changed")
+newq = write("newq.csv", "Setor;Emitente;Nº Fatura / ATCUD;Tipo;Data Emissão;Total;IVA;Base Tributável;Situação\n"
+             "Outros;500000009 - Novo Fornecedor Lda;FT N/1 / JFNN11AA-1;Fatura;20-12-2026;61,50;11,50;50,00;Registado\n"
+             "Outros;500000009 - Novo Fornecedor Lda;FT N/2 / JFNN11AA-2;Fatura;05-01-2027;24,60;4,60;20,00;Registado\n")
+efatura.import_files(c5, [newq])
+key = efatura.row_key(efatura.parse(newq)[0])
+efatura.set_code(c5, key, 2)
+out5 = workbook.export_workbook(c5, os.path.join(WORK, "updated.xlsx"))
+check(out5["added"] == 2 and out5["new_sheets"] == ["2027"], f"new quarter: 2 added, sheet 2027 created ({out5})")
+again = workbook.read(out5["path"])
+counts = {s["sheet"]: len(s["documents"]) for s in again["sheets"]}
+check(counts == {"2025": 40, "2026": 41, "2027": 1}, f"written workbook reads back with the new documents ({counts})")
+n1 = [d for s in again["sheets"] if s["sheet"] == "2026" for d in s["documents"] if d["doc"]["number"] == "FT N/1"]
+check(len(n1) == 1 and n1[0]["code"] == 2 and n1[0]["doc"]["atcud"] == "JFNN11AA-1",
+      "the new document is written with its ATCUD and its code")
+
 shutil.rmtree(WORK, ignore_errors=True)
 print("\nALL OK" if not failures else f"\n{len(failures)} FAILED")
 sys.exit(1 if failures else 0)

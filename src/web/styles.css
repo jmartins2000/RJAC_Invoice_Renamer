@@ -351,3 +351,13 @@ section:first-child { padding-top: 8px; }
 .seg.wide { display: flex; }
 .seg.wide button { flex: 1; }
 .mt-s { margin-top: 8px; }
+.action-menu { position: relative; width: auto; }
+.action-menu .menu-list.right { right: 0; left: auto; min-width: 300px; }
+.action-menu .menu-item b { font-weight: 600; }
+.wb-report { max-height: 46vh; overflow-y: auto; border: 1px solid var(--frost); border-radius: 10px; margin-top: 14px; }
+.wb-sheet { padding: 10px 14px; border-bottom: 1px solid var(--frost); }
+.wb-sheet:last-child { border-bottom: none; }
+.wb-head { display: flex; align-items: center; gap: 12px; margin-bottom: 2px; }
+.wb-head .chip { margin-left: auto; }
+.btn.more { margin: 10px 12px; }
+.notice.info { background: var(--selected); border-radius: 8px; padding: 10px 14px; margin-top: 12px; }

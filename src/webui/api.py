@@ -10,6 +10,7 @@ import datetime
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ import threading
 import webview
 
 from src.services import api_key as key_store
-from src.services import efatura, history, models, periods, qr_at, settings, updater
+from src.services import efatura, history, models, periods, qr_at, settings, updater, workbook
 from src.services import fields as fieldmod
 from src.services.excel_exporter import FILE_COLUMNS, ExcelExporter
 from src.services.review_session import ReviewSession
@@ -93,10 +94,10 @@ class Api:
         return _first(self._window.create_file_dialog(webview.FileDialog.FOLDER,
                                                       directory=start if start and os.path.isdir(start) else ""))
 
-    def _ask_save(self, folder, name):
+    def _ask_save(self, folder, name, file_types=("Excel (*.xlsx)",)):
         return _first(self._window.create_file_dialog(
             webview.FileDialog.SAVE, directory=folder if folder and os.path.isdir(folder) else "",
-            save_filename=name, file_types=("Excel (*.xlsx)",)))
+            save_filename=name, file_types=file_types))
 
     # ================================================================== app
     def app_info(self):
@@ -686,7 +687,7 @@ class Api:
         the status code of each e-Fatura document (matched ones are 1 · DOC. OK unless changed)."""
         stored = efatura.stored_count(path)
         if not stored:
-            return {"stored": 0, "items": [], "codes": efatura.CODES}
+            return {"stored": 0, "items": [], "codes": workbook.codes_for(path), "workbook": self._wb_info(path)}
         result = efatura.compare(path, start, end)
         done = efatura.resolutions(path)
         chosen = efatura.codes(path)
@@ -735,8 +736,48 @@ class Api:
         order = {"differ": 0, "missing": 1, "not_in_ef": 2, "matched": 3, "cancelled": 4}
         items.sort(key=lambda i: (order[i["kind"]], (i["ef"] or i["receipt"])["date"] or ""))
         self._ef_cache[path] = {i["id"]: i for i in items}
-        return {"stored": stored, "items": items, "codes": efatura.CODES,
+        return {"stored": stored, "items": items, "codes": workbook.codes_for(path), "workbook": self._wb_info(path),
                 "count_ef": len(efatura.rows(path, start, end))}
+
+    def _wb_info(self, path):
+        w = workbook.info(path)
+        return {"name": w["name"], "imported": w["imported_at"][:10]} if w else None
+
+    def efatura_import_workbook(self, path):
+        """Reads the client's own "Conferência EF" workbook into the client (documents + codes)."""
+        chosen = _first(self._window.create_file_dialog(
+            webview.FileDialog.OPEN, file_types=("Excel workbooks (*.xlsx;*.xlsm)", "All files (*.*)")))
+        if not chosen:
+            return None
+        try:
+            r = workbook.import_workbook(path, chosen)
+        except ValueError as e:
+            return {"error": str(e)}
+        except Exception as e:  # damaged / not an Excel file
+            return {"error": f"Couldn't read that workbook: {e}"}
+        project = history.project(path) or {}
+        r["offer_details"] = bool((r["client_name"] and not project.get("name"))
+                                  or (r["client_nif"] and not project.get("nif")))
+        r["file"] = os.path.basename(chosen)
+        return r
+
+    def efatura_export_workbook(self, path):
+        """The client's workbook with everything in the app written in (saved as a new file)."""
+        w = workbook.info(path)
+        if not w:
+            return {"error": "Import the client's workbook first."}
+        base, ext = os.path.splitext(w["name"])
+        base = re.sub(r"\s*\(atualizado [^)]*\)$", "", base)
+        name = f"{base} (atualizado {datetime.date.today().isoformat()}){ext}"
+        out = self._ask_save(os.path.dirname(w["original"]), name, (f"Excel (*{ext})",))
+        if not out:
+            return None
+        if os.path.abspath(out) == os.path.abspath(w["original"]):
+            return {"error": "Save it under a new name: the original workbook is never overwritten."}
+        try:
+            return workbook.export_workbook(path, out)
+        except Exception as e:
+            return {"error": f"Couldn't write the workbook: {e}"}
 
     def efatura_set_code(self, path, item_id, code):
         item = self._ef_cache.get(path, {}).get(item_id)
@@ -816,7 +857,9 @@ class Api:
             return None
         head_font = Font(bold=True, color="FFFFFF")
         head_fill = PatternFill(start_color="204E27", end_color="204E27", fill_type="solid")
-        by_code = {c["code"]: c for c in efatura.CODES}
+        client_codes = workbook.codes_for(path)
+        by_code = {c["code"]: c for c in client_codes}
+        label_of = {c["code"]: c["label"] for c in client_codes}
 
         def header(ws, cols, widths):
             ws.append(cols)
@@ -848,7 +891,7 @@ class Api:
             code = i["code"]
             ws.append([ef["sector"], f"{ef['nif']} - {ef['supplier']}".strip(" -"), number, ef["type"],
                        as_date(ef["date"]), ef["total"], ef["vat"], base, ef["status"], "", code,
-                       efatura.CODE_LABEL.get(code, ""), int(ef["date"][5:7]) if ef["date"] else None,
+                       label_of.get(code, ""), int(ef["date"][5:7]) if ef["date"] else None,
                        (i["receipt"] or {}).get("file") or ""])
             row = ws[ws.max_row]
             row[4].number_format = "yyyy-mm-dd"
@@ -878,7 +921,7 @@ class Api:
                         "Ficheiro", "Nota", "Decisão"], (12, 34, 12, 30, 14, 14, 36, 40, 34))
             for i in (x for x in view["items"] if x["kind"] == kind):
                 rc, ef = i["receipt"] or {}, i["ef"] or {}
-                decision = efatura.CODE_LABEL.get(i["code"]) or {
+                decision = label_of.get(i["code"]) or {
                     "not_needed": "Not needed", "kept": "Kept receipt values", "registered": "Registered"
                 }.get(i["resolution"] or "", "")
                 ws.append([ef.get("date") or rc.get("date"), ef.get("supplier") or rc.get("supplier"),

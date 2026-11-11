@@ -209,6 +209,9 @@ def report(info):
                          + ("…" if len(s["skipped_rows"]) > 10 else ""))
         if s["unknown_codes"]:
             notes.append("codes not in the list: " + ", ".join(f"row {r} '{v}'" for r, v in s["unknown_codes"][:5]))
+        if not s["checks"]:
+            notes.append("totals not checked: the file has no calculated totals to compare with "
+                         "(open it in Excel and save it once, then import again to check)")
         ok = all(c["ok"] for c in s["checks"]) and not s["unknown_codes"]
         out.append({"sheet": s["sheet"], "year": s["year"], "documents": n, "coded": coded,
                     "ok": ok, "checked": bool(s["checks"]), "notes": notes})
@@ -413,6 +416,7 @@ def export_workbook(project, out_path):
     root, ext = os.path.splitext(out_path)
     if os.path.splitext(w["copy"])[1].lower() == ".xlsm" and ext.lower() != ".xlsm":
         out_path = root + ".xlsm"
+    wb.calculation.fullCalcOnLoad = True  # Excel recalculates his formulas and SUBTOTALs on opening
     wb.save(out_path)
     summary["path"] = out_path
     return summary

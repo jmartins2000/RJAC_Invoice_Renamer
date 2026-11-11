@@ -109,7 +109,7 @@ api.start_background = lambda: None  # no update check / model list from the net
 OUT_DIR = os.path.join(work, "renamed")
 os.makedirs(OUT_DIR)
 api._ask_folder = lambda start=None: OUT_DIR                     # "Change" in the rename dialog
-api._ask_save = lambda folder, name: os.path.join(work, name)    # every "Export to Excel"
+api._ask_save = lambda folder, name, *a: os.path.join(work, name)  # every "Export to Excel"
 window.create_file_dialog = lambda *a, **k: [EF_CSV]             # "Import export files…"
 
 

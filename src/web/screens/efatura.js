@@ -1,6 +1,6 @@
 // e-Fatura reconciliation: the client's receipts vs. the AT's list, one case at a time.
-import { useEffect, useState } from "../vendor/hooks.mjs";
-import { api, ctx, FeedbackButton, html, Icon, Menu, niceDate, plain2, toast, TopBar } from "../ui.js";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
+import { api, confirmBox, ctx, FeedbackButton, html, Icon, Menu, Modal, niceDate, plain2, toast, TopBar } from "../ui.js";
 import { PeriodMenu } from "./folder.js";
 import { Preview } from "./review.js";
 
@@ -112,6 +112,46 @@ function Detail({ item, path, reload, codes }) {
     </div>`;
 }
 
+/** A button that opens a short list of actions. */
+function ActionMenu({ label, solid, options, disabled }) {
+  const [openM, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    if (!openM) return;
+    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    window.addEventListener("mousedown", away);
+    return () => window.removeEventListener("mousedown", away);
+  }, [openM]);
+  return html`<div class="menu action-menu" ref=${ref}>
+    <button class=${"btn" + (solid ? " solid" : "")} disabled=${disabled} onClick=${() => setOpen(!openM)}>${label} <${Icon} name="down" size=${14} /></button>
+    ${openM && html`<div class="menu-list right">${options.filter(Boolean).map((o) => html`
+      <div class="menu-item" onClick=${() => { setOpen(false); o.run(); }}><b>${o.label}</b>${o.hint && html`<small class="muted block">${o.hint}</small>`}</div>`)}</div>`}
+  </div>`;
+}
+
+function WorkbookReport({ r, path, onClose }) {
+  const [applied, setApplied] = useState(false);
+  const useDetails = async () => { await api.rename_client(path, r.client_name, r.client_nif); setApplied(true); };
+  const allOk = r.report.every((s) => s.ok);
+  return html`<${Modal} onClose=${onClose} width=${680}>
+    <h2>Workbook imported</h2>
+    <p class="muted">${r.file}: ${r.documents.toLocaleString()} documents from ${r.report.length} year sheets
+      (${r.new.toLocaleString()} new for this client).
+      ${!allOk ? "Some sheets need a look (below)." : r.report.every((x) => x.checked) ? "Every sheet adds up to the same totals as in Excel." : ""}</p>
+    ${r.offer_details && html`<div class="notice info">
+      <p>The workbook is for <b>${r.client_name}</b>${r.client_nif ? html` · NIF ${r.client_nif}` : ""}.</p>
+      ${applied ? html`<p class="green">✓ Saved as this client's name and NIF.</p>` : html`<button class="btn small" onClick=${useDetails}>Use as this client's name and NIF</button>`}
+    </div>`}
+    <div class="wb-report">${r.report.map((s) => html`<div class="wb-sheet">
+      <div class="wb-head"><b>${s.sheet}</b>
+        <span class="muted">${s.documents.toLocaleString()} documents · ${s.coded.toLocaleString()} with a code</span>
+        <span class=${!s.ok ? "chip small amber" : s.checked ? "chip small green" : "chip small grey"}>${!s.ok ? "Look at this" : s.checked ? "✓ Totals match" : "Not checked"}</span></div>
+      ${s.notes.filter((n) => !n.includes("read correctly")).map((n) => html`<small class="muted block">· ${n}</small>`)}
+    </div>`)}</div>
+    <div class="actions"><button class="btn solid" onClick=${onClose}>Done</button></div>
+  <//>`;
+}
+
 export function Efatura({ path, go }) {
   const [info, setInfo] = useState(null);
   const [period, setPeriod] = useState(null);
@@ -119,10 +159,19 @@ export function Efatura({ path, go }) {
   const [filter, setFilter] = useState("attention");
   const [sel, setSel] = useState(null);
   const [exported, setExported] = useState(null);
+  const [report, setReport] = useState(null);
+  const [limit, setLimit] = useState(300);
+  const [busy, setBusy] = useState("");
+  const pickPeriod = (f) => {
+    // lots of documents (a whole workbook): start on this year instead of everything
+    const year = f.periods.find((p) => p.label.startsWith("This year"));
+    return f.efatura > 3000 && year ? year : f.periods.find((p) => p.label !== f.custom);
+  };
   useEffect(() => {
     ctx.screen = "e-Fatura"; ctx.folder = path;
-    api.folder(path).then((f) => { setInfo(f); setPeriod(f.periods.find((p) => p.label !== f.custom)); });
+    api.folder(path).then((f) => { setInfo(f); setPeriod(pickPeriod(f)); });
   }, [path]);
+  useEffect(() => setLimit(300), [period]);
   const load = async () => { if (period) setView(await api.efatura_view(path, period.start, period.end)); };
   useEffect(() => { setView(null); load(); }, [period]);
   const importFiles = async () => {
@@ -131,7 +180,39 @@ export function Efatura({ path, go }) {
     if (r.error) toast(r.error, "warn"); else toast(r.message);
     const f = await api.folder(path); setInfo(f); load();
   };
+  const importWorkbook = async () => {
+    setBusy("Reading the workbook…");
+    try {
+      const r = await api.efatura_import_workbook(path);
+      if (!r) return;
+      if (r.error) { toast(r.error, "warn"); return; }
+      setReport(r);
+      const f = await api.folder(path); setInfo(f);
+      if (!view || !view.stored) setPeriod(pickPeriod(f)); else load();
+    } finally { setBusy(""); }
+  };
   const exp = async () => { const ok = await api.efatura_export(path, period.start, period.end, period.short); if (ok !== null) setExported(ok); };
+  const expWorkbook = async () => {
+    setBusy("Writing the workbook…");
+    try {
+      const r = await api.efatura_export_workbook(path);
+      if (!r) return;
+      if (r.error) { toast(r.error, "warn"); return; }
+      const bits = [`${r.added} document${r.added === 1 ? "" : "s"} added`, `${r.codes_changed} code${r.codes_changed === 1 ? "" : "s"} updated`];
+      if (r.new_sheets.length) bits.push(`new sheet ${r.new_sheets.join(", ")}`);
+      if (await confirmBox({ title: "Workbook saved", ok: "Open it", cancel: "Close",
+        text: `${bits.join(" · ")}.\n\nSaved as a new file next to the original:\n${r.path.split(/[\\/]/).pop()}` })) api.open(r.path);
+    } finally { setBusy(""); }
+  };
+  const wb = view && view.workbook;
+  const importOptions = [
+    { label: "Portal export files (CSV)…", hint: "e-Fatura › Adquirente › Obter dados para Excel", run: importFiles },
+    { label: "The client's workbook (Excel)…", hint: wb ? `Imported ${wb.imported}: ${wb.name}` : "His yearly “Conferência EF” file, with codes", run: importWorkbook },
+  ];
+  const exportOptions = [
+    wb && { label: "Update the client's workbook…", hint: `A new copy of ${wb.name} with everything in the app`, run: expWorkbook },
+    { label: "New Excel for this period…", hint: period ? period.label : "", run: exp },
+  ];
 
   const items = view ? view.items : [];
   const codes = (view && view.codes) || [];
@@ -147,29 +228,35 @@ export function Efatura({ path, go }) {
         progress=${view && view.stored ? (items.length ? resolved / items.length : 1) : null}>
       <${FeedbackButton} />
       ${info && period && html`<${PeriodMenu} periods=${info.periods} custom=${info.custom} value=${period} onChange=${setPeriod} />`}
-      <button class="btn" onClick=${importFiles}>Import export files…</button>
-      <button class="btn solid" disabled=${!items.length} onClick=${exp}>${exported === true ? "✓ Exported" : exported === false ? "Export failed" : "Export to Excel"}</button>
+      ${busy ? html`<span class="muted small">${busy}</span>` : html`
+        <${ActionMenu} label="Import" options=${importOptions} />
+        <${ActionMenu} label=${exported === true ? "✓ Exported" : exported === false ? "Export failed" : "Export"} solid=${true}
+          disabled=${!(view && view.stored)} options=${exportOptions} />`}
     <//>
     ${view && !view.stored ? html`
       <div class="center-page"><div class="center-col">
         <h1>No e-Fatura data for this client yet</h1>
         <p class="lead">In the Portal das Finanças: e-Fatura › Faturação › Adquirente › choose the period › Pesquisar › "Obter dados para Excel". You can import one file per month or quarter.</p>
-        <div><button class="btn primary" onClick=${importFiles}>Import export files…</button></div>
+        <p class="lead">Or start from the client's own yearly workbook ("Conferência EF"): its documents and codes come in, and the app can write new quarters back into it.</p>
+        <div class="btn-row"><button class="btn primary" disabled=${!!busy} onClick=${importFiles}>Import export files…</button>
+          <button class="btn big" disabled=${!!busy} onClick=${importWorkbook}>${busy || "Import the client's workbook…"}</button></div>
       </div></div>` : html`
       <div class="ef">
         <div class="ef-list">
           <div class="chips">${FILTERS.map(([k, l]) => html`<button class=${"fchip" + (filter === k ? " on" : "")} onClick=${() => { setFilter(k); setSel(null); }}>${l} · ${count(k)}</button>`)}</div>
           <div class="ef-items">
             ${view && shown.length === 0 && html`<p class="muted pad">${filter === "attention" ? (items.length ? "All resolved for this period. 🎉" : "No invoices in this period.") : "None."}</p>`}
-            ${shown.map((i) => { const d = main(i); return html`
+            ${shown.slice(0, limit).map((i) => { const d = main(i); return html`
               <div class=${"ef-item" + (selected && selected.id === i.id ? " on" : "")} onClick=${() => setSel(i.id)}>
                 <span class=${"chip small " + KIND[i.kind].cls + (open(i) || i.kind === "matched" || i.kind === "cancelled" ? "" : " faded")}>${!open(i) && i.kind !== "matched" && i.kind !== "cancelled" ? "✓ Done" : KIND[i.kind].chip}</span>
                 <div class="ef-item-text"><b>${d.supplier || d.nif}</b><small class="muted">${niceDate(d.date, true)} · ${d.number}</small></div>
                 <span class=${"ef-total" + (i.kind === "differ" ? " strong" : "")}>${plain2(d.total)}</span>
                 <${CodeBadge} item=${i} codes=${codes} />
               </div>`; })}
+            ${shown.length > limit && html`<button class="btn small more" onClick=${() => setLimit(limit + 500)}>Show more (${(shown.length - limit).toLocaleString()} more)</button>`}
           </div>
         </div>
         <div class="ef-right">${selected ? html`<${Detail} key=${selected.id} item=${selected} path=${path} reload=${load} codes=${codes} />` : view && html`<p class="muted pad">Nothing selected.</p>`}</div>
-      </div>`}`;
+      </div>`}
+    ${report && html`<${WorkbookReport} r=${report} path=${path} onClose=${() => { setReport(null); load(); }} />`}`;
 }
