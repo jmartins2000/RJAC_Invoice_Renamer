@@ -326,7 +326,7 @@ def test():
         js("document.querySelector('.table-head .menu-btn').click()")
         time.sleep(0.3)
         click("Custom dates", ".menu-item")
-        wait("!!document.querySelector('.modal input')", 10, "custom dates dialog")
+        wait("!!document.querySelector('.modal .date-btn')", 10, "custom dates dialog")
         pick_date(0, "2026-09-05")   # on the calendar
         pick_date(1, "2026-09-10")
         click("Show", ".modal .btn.solid")
