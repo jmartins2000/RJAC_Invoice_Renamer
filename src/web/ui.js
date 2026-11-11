@@ -69,6 +69,7 @@ const paths = {
   camera: html`<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>`,
   x: html`<path d="M18 6L6 18M6 6l12 12"/>`,
   fit: html`<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>`,
+  calendar: html`<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>`,
 };
 export const Icon = ({ name, size = 16, stroke }) =>
   html`<svg class="icon-svg" viewBox="0 0 24 24" style=${{ width: size, height: size, strokeWidth: stroke }}>${paths[name]}</svg>`;
@@ -189,6 +190,57 @@ export function Menu({ value, options, onChange, width = 230, label }) {
       </div>`}
     </div>`;
 }
+
+// ---------- Calendar (our own, so it looks and works the same on Mac and Windows) ----------
+const MONTHS_LONG = {
+  pt: ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"],
+  en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+};
+const WEEKDAYS = { pt: ["S", "T", "Q", "Q", "S", "S", "D"], en: ["M", "T", "W", "T", "F", "S", "S"] };  // week starts on Monday
+const pad = (n) => String(n).padStart(2, "0");
+const toISO = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
+/** "2026-07-01" → "01/07/2026" (pt) or "1 Jul 2026"-style handled by niceDate elsewhere */
+export const dmy = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "");
+
+export function Calendar({ value, onPick, min }) {
+  const today = new Date();
+  const start = value ? new Date(value + "T00:00:00") : min ? new Date(min + "T00:00:00") : today;
+  const [y, setY] = useState(start.getFullYear());
+  const [m, setM] = useState(start.getMonth());
+  const lang = getLang();
+  const first = (new Date(y, m, 1).getDay() + 6) % 7;  // Monday = 0
+  const days = new Date(y, m + 1, 0).getDate();
+  const cells = [...Array(first).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
+  const move = (dm) => { const d = new Date(y, m + dm, 1); setY(d.getFullYear()); setM(d.getMonth()); };
+  const todayISO = toISO(today.getFullYear(), today.getMonth(), today.getDate());
+  return html`<div class="cal">
+    <div class="cal-head">
+      <button type="button" class="cal-nav" title=${t("Previous year")} onClick=${() => move(-12)}>«</button>
+      <button type="button" class="cal-nav" title=${t("Previous month")} onClick=${() => move(-1)}>‹</button>
+      <b>${MONTHS_LONG[lang][m]} ${y}</b>
+      <button type="button" class="cal-nav" title=${t("Next month")} onClick=${() => move(1)}>›</button>
+      <button type="button" class="cal-nav" title=${t("Next year")} onClick=${() => move(12)}>»</button>
+    </div>
+    <div class="cal-grid">
+      ${WEEKDAYS[lang].map((w) => html`<span class="cal-wd">${w}</span>`)}
+      ${cells.map((d) => {
+        if (!d) return html`<span></span>`;
+        const iso = toISO(y, m, d);
+        const off = min && iso < min;
+        return html`<button type="button" disabled=${off} class=${"cal-day" + (iso === value ? " on" : "") + (iso === todayISO ? " today" : "")}
+          onClick=${() => onPick(iso)}>${d}</button>`;
+      })}
+    </div>
+    <div class="cal-foot"><button type="button" class="link small" onClick=${() => onPick(todayISO)}>${t("Today")}</button></div>
+  </div>`;
+}
+
+/** A date field that shows dd/mm/yyyy; clicking it asks the parent to show the calendar (in the page,
+ * so it's never cut off by a dialog's edge). */
+export const DateButton = ({ value, active, onClick, placeholder }) => html`
+  <button type="button" class=${"input date-btn" + (active ? " active" : "")} onClick=${onClick}>
+    <span class=${value ? "" : "muted"}>${value ? dmy(value) : (placeholder || t("Choose a date"))}</span><${Icon} name="calendar" size=${16} />
+  </button>`;
 
 export const Toggle = ({ on, onChange, disabled }) =>
   html`<button class=${"toggle" + (on ? " on" : "")} disabled=${disabled} onClick=${() => onChange(!on)}><span></span></button>`;

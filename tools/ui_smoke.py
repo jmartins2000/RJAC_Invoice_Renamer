@@ -154,6 +154,27 @@ def click(text, sel="button, .row, .file-row, .ef-item, .menu-item, .fchip, .lin
     time.sleep(0.4)
 
 
+def pick_date(index, iso):
+    """Opens the index-th calendar in the dialog, goes to the month of iso and clicks the day."""
+    js(f"(() => {{ const b = document.querySelectorAll('.modal .date-btn')[{index}]; if (!b.classList.contains('active')) b.click(); }})()")
+    time.sleep(0.3)
+    y, m, d = (int(x) for x in iso.split("-"))
+    for _ in range(40):  # move to the right month
+        title = js("document.querySelector('.cal-head b').textContent")
+        months_pt = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro",
+                     "outubro", "novembro", "dezembro"]
+        months_en = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
+                     "October", "November", "December"]
+        name, year = title.rsplit(" ", 1)
+        cur = (int(year), (months_en.index(name) if name in months_en else months_pt.index(name)) + 1)
+        if cur == (y, m):
+            break
+        js(f"document.querySelectorAll('.cal-nav')[{1 if cur > (y, m) else 2}].click()")
+        time.sleep(0.1)
+    js(f"[...document.querySelectorAll('.cal-day')].find((b) => b.textContent.trim() === '{d}').click()")
+    time.sleep(0.3)
+
+
 def type_into(selector, value, index=0):
     js(f"""(() => {{ const el = document.querySelectorAll({selector!r})[{index}];
         el.value = {value!r}; el.dispatchEvent(new Event('input', {{ bubbles: true }})); }})()""")
@@ -306,8 +327,8 @@ def test():
         time.sleep(0.3)
         click("Custom dates", ".menu-item")
         wait("!!document.querySelector('.modal input')", 10, "custom dates dialog")
-        type_into(".modal input", "05/09/2026", 0)
-        type_into(".modal input", "10.09.2026", 1)
+        pick_date(0, "2026-09-05")   # on the calendar
+        pick_date(1, "2026-09-10")
         click("Show", ".modal .btn.solid")
         time.sleep(1)
         rows = count(".folder-body tbody tr")

@@ -1,6 +1,6 @@
 // One client's folder: invoices by period, runs, filename, destination, e-Fatura.
 import { useEffect, useState } from "../vendor/hooks.mjs";
-import { api, confirmBox, ctx, FeedbackButton, html, Menu, Modal, money, niceDate, plural, t, tn, toast, TopBar } from "../ui.js";
+import { api, Calendar, confirmBox, ctx, DateButton, FeedbackButton, html, Menu, Modal, money, niceDate, plural, t, tn, toast, TopBar } from "../ui.js";
 
 /** Period dropdown shared with the e-Fatura screen. Handles "Custom dates…". */
 export function PeriodMenu({ periods, custom, value, onChange, withCustom = true }) {
@@ -20,21 +20,31 @@ export function PeriodMenu({ periods, custom, value, onChange, withCustom = true
 function CustomDates({ onDone, onCancel }) {
   const [a, setA] = useState("");
   const [b, setB] = useState("");
+  const [which, setWhich] = useState("a");  // the calendar shown: for "a" (from), "b" (to) or none
   const [err, setErr] = useState(false);
   const ok = async () => {
     const p = await api.parse_dates(a, b);
     if (!p) setErr(true); else onDone(p);
   };
-  const key = (e) => e.key === "Enter" && ok();
+  const pick = (iso) => {
+    setErr(false);
+    if (which === "a") { setA(iso); if (b && iso > b) setB(""); setWhich("b"); }
+    else { setB(iso); setWhich(null); }
+  };
   return html`<${Modal} onClose=${onCancel} width=${440}>
     <h2>${t("Invoices dated between")}</h2>
     <div class="date-row">
-      <input class="input" placeholder=${t("From, e.g. 01/02/2026")} value=${a} onInput=${(e) => setA(e.target.value)} onKeyDown=${key} autofocus />
+      <div class="date-field"><span>${t("From")}</span>
+        <${DateButton} value=${a} active=${which === "a"} onClick=${() => setWhich(which === "a" ? null : "a")} /></div>
       <span class="muted">–</span>
-      <input class="input" placeholder=${t("To, e.g. 30/04/2026")} value=${b} onInput=${(e) => setB(e.target.value)} onKeyDown=${key} />
+      <div class="date-field"><span>${t("To")}</span>
+        <${DateButton} value=${b} active=${which === "b"} onClick=${() => setWhich(which === "b" ? null : "b")} /></div>
     </div>
-    <p class=${err ? "error small" : "muted small"}>${err ? t("Please write both dates, e.g. 01/02/2026.") : t("Both dates are included.")}</p>
-    <div class="actions"><button class="btn" onClick=${onCancel}>${t("Cancel")}</button><button class="btn solid" onClick=${ok}>${t("Show")}</button></div>
+    ${which && html`<div class="cal-inline"><${Calendar} key=${which} value=${which === "a" ? a : b}
+      min=${which === "b" ? a || null : null} onPick=${pick} /></div>`}
+    <p class=${err ? "error small" : "muted small"}>${err ? t("Please choose both dates.") : t("Both dates are included.")}</p>
+    <div class="actions"><button class="btn" onClick=${onCancel}>${t("Cancel")}</button>
+      <button class="btn solid" disabled=${!a || !b} onClick=${ok}>${t("Show")}</button></div>
   <//>`;
 }
 

@@ -1,6 +1,6 @@
 // Review: file list · preview (zoom, QR outline) · fields. Values come from history, filename, QR or Gemini.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
-import { api, ctx, FeedbackButton, html, Icon, Modal, plural, StatusDot, t, tn, Toggle, TopBar, usePy, Spinner } from "../ui.js";
+import { api, Calendar, ctx, FeedbackButton, html, Icon, Modal, plural, StatusDot, t, tn, Toggle, TopBar, usePy, Spinner } from "../ui.js";
 
 export function Preview({ pages, qr, loading, compact = false }) {
   const [zoom, setZoom] = useState(1);
@@ -47,6 +47,19 @@ function RenameDialog({ info, onCancel, onGo }) {
     <div class="actions"><button class="btn" disabled=${busy} onClick=${onCancel}>${t("Cancel")}</button>
       <button class="btn solid" disabled=${busy} onClick=${() => { setBusy(true); onGo(dest, del); }}>${busy ? t("Renaming…") : t("Rename")}</button></div>
   <//>`;
+}
+
+/** A date in the review form: typed as 2026.10.06 (quick to correct a digit), or picked on the calendar. */
+function DateInput({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const iso = /^(\d{4})[.\-\/](\d{2})[.\-\/](\d{2})$/.test(value) ? value.replace(/[.\/]/g, "-") : "";
+  return html`<div class="date-input">
+    <div class="date-input-row">
+      <input class="input" value=${value} placeholder="YYYY.MM.DD" onInput=${(e) => onChange(e.target.value)} />
+      <button class=${"btn icon" + (open ? " on" : "")} type="button" title=${t("Choose on a calendar")} onClick=${() => setOpen(!open)}><${Icon} name="calendar" size=${16} /></button>
+    </div>
+    ${open && html`<div class="cal-inline"><${Calendar} value=${iso} onPick=${(d) => { setOpen(false); onChange(d.replace(/-/g, ".")); }} /></div>`}
+  </div>`;
 }
 
 export function Review({ path, go, onDone }) {
@@ -174,8 +187,9 @@ export function Review({ path, go, onDone }) {
             <div class="form">
               ${session.fields.map((f) => html`<label class=${"fld" + (f.type === "text" ? " full" : "")}>
                 <span>${t(f.label)}</span>
-                <input class="input" value=${form[f.key] || ""} placeholder=${f.type === "date" ? "YYYY.MM.DD" : f.type === "number" ? "0.00" : ""}
-                  onInput=${(e) => edit(f.key, e.target.value)} />
+                ${f.type === "date" ? html`<${DateInput} value=${form[f.key] || ""} onChange=${(v) => edit(f.key, v)} />` : html`
+                <input class="input" value=${form[f.key] || ""} placeholder=${f.type === "number" ? "0.00" : ""}
+                  onInput=${(e) => edit(f.key, e.target.value)} />`}
               </label>`)}
             </div>
             <div class="result"><div class="eyebrow">${t("Will be saved as")}</div><p class="mono">${result || "…"}</p></div>`}
