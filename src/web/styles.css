@@ -412,3 +412,10 @@ section:first-child { padding-top: 8px; }
 .new-files .btn { flex-shrink: 0; }
 tr.row-new td { color: var(--red); }
 tr.row-new td.status-new { font-weight: 600; }
+/* Client table with columns the user can widen (drag the edge of a header) */
+.table.resizable { table-layout: fixed; }
+.table.resizable td { max-width: none; }
+.table.resizable th { position: sticky; overflow: hidden; text-overflow: ellipsis; }
+.table.resizable th .col-resize { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; z-index: 2; }
+.table.resizable th .col-resize::after { content: ""; position: absolute; top: 25%; bottom: 25%; right: 3px; width: 1px; background: var(--field-border); }
+.table.resizable th:hover .col-resize::after, .table.resizable th .col-resize:hover::after { background: var(--evergreen); width: 2px; }

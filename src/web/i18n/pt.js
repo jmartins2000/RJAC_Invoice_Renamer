@@ -372,4 +372,5 @@ export default {
   "{n} files not read yet": "{n} ficheiros ainda não lidos",
   "in this folder (in red below).": "nesta pasta (a vermelho em baixo).",
   "Read now": "Ler agora",
+  "Drag to change the width · double-click: automatic": "Arraste para mudar a largura · duplo clique: automática",
 };

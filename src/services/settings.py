@@ -16,6 +16,7 @@ DEFAULTS = {
     "delete_original": True,
     "appearance": "system",      # system | light | dark
     "language": "pt",            # pt (Portugal) | en
+    "column_widths": {},         # client table: column key -> width in px (set by dragging)
     "last_source": None,
     "model": None,  # None = the catalog's default
     "usage": {},  # "YYYY-MM": {"invoices": int, "cost_usd": float}

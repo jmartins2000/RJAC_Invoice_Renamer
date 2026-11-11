@@ -118,6 +118,16 @@ class Api:
                     self._emit("update", self._update_dict())
             threading.Thread(target=check, daemon=True).start()
 
+    def set_column_width(self, key, width):
+        """Client table: a column's width in px (None = back to automatic). Same for every client."""
+        widths = dict(settings.load().get("column_widths") or {})
+        if width:
+            widths[str(key)] = max(50, min(900, int(width)))
+        else:
+            widths.pop(str(key), None)
+        settings.save(column_widths=widths)
+        return widths
+
     def set_language(self, lang):
         settings.save(language=lang if lang in i18n.LANGUAGES else "pt")
         return True
@@ -275,6 +285,7 @@ class Api:
                      for r in runs],
             "example": _filename_example(fields, prefs.get("filename_original"), sep),
             "dest": dest, "dest_label": dest or i18n.tr("This folder (renamed in place)"),
+            "column_widths": prefs.get("column_widths") or {},
             "efatura": efatura.stored_count(path),
         }
 

@@ -1,5 +1,5 @@
 // One client's folder: invoices by period, runs, filename, destination, e-Fatura.
-import { useEffect, useState } from "../vendor/hooks.mjs";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { api, Calendar, confirmBox, ctx, DateButton, FeedbackButton, html, Menu, Modal, money, niceDate, plural, t, tn, toast, TopBar } from "../ui.js";
 
 /** Period dropdown shared with the e-Fatura screen. Handles "Custom dates…". */
@@ -48,9 +48,14 @@ function CustomDates({ onDone, onCancel }) {
   <//>`;
 }
 
-export function InvoiceTable({ columns, rows, pending = [], folder = "" }) {
+// Column widths: what the user dragged (saved for every client) or a sensible default by type.
+const DEFAULT_WIDTH = { date: 112, number: 108, text: 210, _file: 260, _status: 124 };
+
+export function InvoiceTable({ columns, rows, pending = [], folder = "", widths = {}, onWidth }) {
   const [sort, setSort] = useState([null, false]);
-  const by = (key) => setSort([key, sort[0] === key ? !sort[1] : false]);
+  const [live, setLive] = useState({});  // widths while dragging
+  const dragged = useRef(false);
+  const by = (key) => { if (dragged.current) { dragged.current = false; return; } setSort([key, sort[0] === key ? !sort[1] : false]); };
   let shown = rows;
   if (sort[0]) {
     const val = (r) => sort[0] === "_file" ? r.file : sort[0] === "_status" ? r.status_label : r.sort[sort[0]];
@@ -63,24 +68,44 @@ export function InvoiceTable({ columns, rows, pending = [], folder = "" }) {
     });
   }
   const arrow = (k) => sort[0] === k ? (sort[1] ? " ↓" : " ↑") : "";
+  const cols = [...columns.map((c) => ({ key: c.key, label: c.label, type: c.type })),
+    { key: "_file", label: t("File"), type: "_file" }, { key: "_status", label: t("Status"), type: "_status" }];
+  const widthOf = (c) => live[c.key] ?? widths[c.key] ?? DEFAULT_WIDTH[c.type] ?? 160;
+  const total = cols.reduce((s, c) => s + widthOf(c), 0);
+  const startDrag = (e, c) => {
+    e.preventDefault(); e.stopPropagation();
+    const x0 = e.clientX, w0 = widthOf(c);
+    let w = w0;
+    const move = (ev) => { w = Math.max(50, Math.min(900, w0 + ev.clientX - x0)); setLive((l) => ({ ...l, [c.key]: w })); };
+    const up = () => {
+      window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up);
+      dragged.current = w !== w0;
+      if (w !== w0 && onWidth) onWidth(c.key, w);
+      setTimeout(() => { dragged.current = false; }, 0);
+    };
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+  };
+  const reset = (e, c) => { e.stopPropagation(); setLive((l) => { const n = { ...l }; delete n[c.key]; return n; }); if (onWidth) onWidth(c.key, null); };
+  const numeric = (c) => c.type === "number";
   return html`
     <div class="table-wrap">
-      <table class="table">
+      <table class="table resizable" style=${{ width: `max(100%, ${total}px)` }}>
+        <colgroup>${cols.map((c) => html`<col style=${{ width: `${widthOf(c)}px` }} />`)}</colgroup>
         <thead><tr>
-          ${columns.map((c) => html`<th class=${c.type === "number" ? "num" : ""} onClick=${() => by(c.key)}>${c.label}${arrow(c.key)}</th>`)}
-          <th class="grow" onClick=${() => by("_file")}>${t("File")}${arrow("_file")}</th>
-          <th onClick=${() => by("_status")}>${t("Status")}${arrow("_status")}</th>
+          ${cols.map((c) => html`<th class=${numeric(c) ? "num" : ""} onClick=${() => by(c.key)}>${c.label}${arrow(c.key)}
+            <span class="col-resize" title=${t("Drag to change the width · double-click: automatic")}
+              onMouseDown=${(e) => startDrag(e, c)} onClick=${(e) => e.stopPropagation()} onDblClick=${(e) => reset(e, c)}></span></th>`)}
         </tr></thead>
         <tbody>
           ${pending.map((name) => html`<tr class="row-new" title=${t("Not read yet: use the button at the top to read it")}
               onDblClick=${async () => { if (!(await api.open(folder + "/" + name))) toast(t("This file is no longer there."), "warn"); }}>
-            ${columns.map((c) => html`<td class=${c.type === "number" ? "num" : ""}>—</td>`)}
-            <td class="grow ellipsis" title=${name}>${name}</td>
+            ${columns.map((c) => html`<td class=${numeric(c) ? "num" : ""}>—</td>`)}
+            <td title=${name}>${name}</td>
             <td class="status-new">${t("Not read yet")}</td>
           </tr>`)}
-          ${shown.map((r) => html`<tr onDblClick=${async () => { if (!(await api.open(r.path))) toast(t("This file is no longer there."), "warn"); }} title=${t("Double-click to open")}>
-            ${columns.map((c) => html`<td class=${c.type === "number" ? "num" : ""}>${r.cells[c.key]}</td>`)}
-            <td class="grow ellipsis" title=${r.file}>${r.file}</td>
+          ${shown.map((r) => html`<tr onDblClick=${async () => { if (!(await api.open(r.path))) toast(t("This file is no longer there."), "warn"); }}>
+            ${columns.map((c) => html`<td class=${numeric(c) ? "num" : ""} title=${r.cells[c.key]}>${r.cells[c.key]}</td>`)}
+            <td title=${r.file}>${r.file}</td>
             <td class=${"status-" + r.status}>${r.status_label}</td>
           </tr>`)}
         </tbody>
@@ -176,7 +201,8 @@ export function Folder({ path, go }) {
           <button class="btn solid small" onClick=${() => go("review", path)}>${t("Read now")}${button.cost ? ` · ${button.cost}` : ""}</button>
         </div>`}
         ${data && rows.length === 0 && !(button.files || []).length ? html`<div class="table-empty">${period.start ? t("No invoices dated in this period.") : t("No invoices read in this folder yet.")}</div>`
-          : html`<${InvoiceTable} columns=${info.columns} rows=${rows} pending=${button.files || []} folder=${path} />`}
+          : html`<${InvoiceTable} columns=${info.columns} rows=${rows} pending=${button.files || []} folder=${path}
+              widths=${info.column_widths || {}} onWidth=${async (k, w) => { const cw = await api.set_column_width(k, w); setInfo((i) => ({ ...i, column_widths: cw })); }} />`}
         <small class="muted hint">${t("Double-click a row to open the file.")}</small>
       </div>
       <aside class="side">
