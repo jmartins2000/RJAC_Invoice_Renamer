@@ -136,4 +136,8 @@ PT = {
     "Most capable, but the most expensive.": "O mais capaz, mas o mais caro.",
     "Listed, but returns 'not available' when used.": "Aparece na lista, mas responde 'não disponível' quando é usado.",
     "Only works with Google's Interactions API.": "Só funciona com a Interactions API da Google.",
+    "Read 1 new file": "Ler 1 ficheiro novo",
+    "Read {n} new files": "Ler {n} ficheiros novos",
+    "Improvements and fixes.": "Melhorias e correções.",
+    "Sending {mb} MB…": "A enviar {mb} MB…",
 }

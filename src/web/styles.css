@@ -407,3 +407,8 @@ section:first-child { padding-top: 8px; }
 .cal-day.on { background: var(--evergreen); color: #fff; font-weight: 700; }
 .cal-day:disabled { opacity: .3; cursor: default; }
 .cal-foot { display: flex; justify-content: flex-end; margin-top: 6px; }
+.new-files { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; margin-bottom: 10px;
+  border-radius: 10px; background: var(--red-bg); color: var(--red); font-size: 13.5px; }
+.new-files .btn { flex-shrink: 0; }
+tr.row-new td { color: var(--red); }
+tr.row-new td.status-new { font-weight: 600; }

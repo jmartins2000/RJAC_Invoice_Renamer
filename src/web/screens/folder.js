@@ -48,7 +48,7 @@ function CustomDates({ onDone, onCancel }) {
   <//>`;
 }
 
-export function InvoiceTable({ columns, rows }) {
+export function InvoiceTable({ columns, rows, pending = [], folder = "" }) {
   const [sort, setSort] = useState([null, false]);
   const by = (key) => setSort([key, sort[0] === key ? !sort[1] : false]);
   let shown = rows;
@@ -72,6 +72,12 @@ export function InvoiceTable({ columns, rows }) {
           <th onClick=${() => by("_status")}>${t("Status")}${arrow("_status")}</th>
         </tr></thead>
         <tbody>
+          ${pending.map((name) => html`<tr class="row-new" title=${t("Not read yet: use the button at the top to read it")}
+              onDblClick=${async () => { if (!(await api.open(folder + "/" + name))) toast(t("This file is no longer there."), "warn"); }}>
+            ${columns.map((c) => html`<td class=${c.type === "number" ? "num" : ""}>—</td>`)}
+            <td class="grow ellipsis" title=${name}>${name}</td>
+            <td class="status-new">${t("Not read yet")}</td>
+          </tr>`)}
           ${shown.map((r) => html`<tr onDblClick=${async () => { if (!(await api.open(r.path))) toast(t("This file is no longer there."), "warn"); }} title=${t("Double-click to open")}>
             ${columns.map((c) => html`<td class=${c.type === "number" ? "num" : ""}>${r.cells[c.key]}</td>`)}
             <td class="grow ellipsis" title=${r.file}>${r.file}</td>
@@ -117,6 +123,18 @@ export function Folder({ path, go }) {
     api.read_button(path).then(setButton);
   }, [path]);
   useEffect(() => { if (period) { setData(null); api.folder_rows(path, period.start, period.end).then(setData); } }, [period]);
+  // Files may be added to the folder while this screen is open (e.g. in Finder / Explorer):
+  // look again whenever the app window comes back to the front.
+  useEffect(() => {
+    const again = () => {
+      api.read_button(path).then(setButton);
+      if (period) api.folder_rows(path, period.start, period.end).then(setData);
+    };
+    window.addEventListener("focus", again);
+    const vis = () => { if (!document.hidden) again(); };
+    document.addEventListener("visibilitychange", vis);
+    return () => { window.removeEventListener("focus", again); document.removeEventListener("visibilitychange", vis); };
+  }, [path, period]);
   if (!info || !period) return html`<${TopBar} onBack=${() => go("home")} title="…" />`;
 
   const exp = async () => {
@@ -153,8 +171,12 @@ export function Folder({ path, go }) {
           <${PeriodMenu} periods=${info.periods} custom=${info.custom} value=${period} onChange=${setPeriod} />
           <span class="muted">${data ? `${tn(rows.length, "{n} invoice", "{n} invoices")} · ${t("total")} ${money(data.total)}` : ""}</span>
         </div>
-        ${data && rows.length === 0 ? html`<div class="table-empty">${period.start ? t("No invoices dated in this period.") : t("No invoices read in this folder yet.")}</div>`
-          : html`<${InvoiceTable} columns=${info.columns} rows=${rows} />`}
+        ${button.new > 0 && html`<div class="new-files">
+          <span><b>${tn(button.new, "{n} file not read yet", "{n} files not read yet")}</b> ${t("in this folder (in red below).")}</span>
+          <button class="btn solid small" onClick=${() => go("review", path)}>${t("Read now")}${button.cost ? ` · ${button.cost}` : ""}</button>
+        </div>`}
+        ${data && rows.length === 0 && !(button.files || []).length ? html`<div class="table-empty">${period.start ? t("No invoices dated in this period.") : t("No invoices read in this folder yet.")}</div>`
+          : html`<${InvoiceTable} columns=${info.columns} rows=${rows} pending=${button.files || []} folder=${path} />`}
         <small class="muted hint">${t("Double-click a row to open the file.")}</small>
       </div>
       <aside class="side">

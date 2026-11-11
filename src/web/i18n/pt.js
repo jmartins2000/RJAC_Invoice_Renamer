@@ -366,4 +366,10 @@ export default {
   "Next year": "Ano seguinte",
   "Today": "Hoje",
   "Choose a date": "Escolher uma data",
+  "Not read yet": "Por ler",
+  "Not read yet: use the button at the top to read it": "Ainda não lido: use o botão no topo para o ler",
+  "{n} file not read yet": "{n} ficheiro ainda não lido",
+  "{n} files not read yet": "{n} ficheiros ainda não lidos",
+  "in this folder (in red below).": "nesta pasta (a vermelho em baixo).",
+  "Read now": "Ler agora",
 };

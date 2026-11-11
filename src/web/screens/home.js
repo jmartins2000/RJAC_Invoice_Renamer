@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { api, ask, ctx, FeedbackButton, html, Icon, Modal, money, niceDate, plural, t, tn, TopBar } from "../ui.js";
 
 // ---------- Home ----------
-function FolderRow({ p, first, onOpen }) {
+function FolderRow({ p, first, onOpen, tick }) {
   const [fresh, setFresh] = useState(null);
-  useEffect(() => { if (p.exists) api.new_files(p.path).then(setFresh); }, [p.path]);
+  useEffect(() => { if (p.exists) api.new_files(p.path).then(setFresh); }, [p.path, tick]);
   let badge = null;
   if (fresh) badge = html`<span class="badge new">${tn(fresh, "{n} new file", "{n} new files")}</span>`;
   else if (p.to_check) badge = html`<span class="badge check">${t("{n} to check", { n: p.to_check })}</span>`;
@@ -62,7 +62,13 @@ function NewClient({ onClose, onCreated }) {
 export function Home({ go, update, onUpdate }) {
   const [projects, setProjects] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [tick, setTick] = useState(0);
   useEffect(() => { ctx.screen = "Home"; ctx.folder = null; ask("projects").then(setProjects); }, []);
+  useEffect(() => {  // files may have been added to the folders meanwhile: look again when the window is back
+    const again = () => { setTick((n) => n + 1); api.projects().then(setProjects); };
+    window.addEventListener("focus", again);
+    return () => window.removeEventListener("focus", again);
+  }, []);
   const add = () => setAdding(true);
   return html`
     <div class="topbar">
@@ -78,7 +84,7 @@ export function Home({ go, update, onUpdate }) {
       </div>
       ${projects === null ? null : projects.length === 0 ? html`
         <div class="empty"><b>${t("No clients yet")}</b><p>${t("Create a client and choose the folder where its receipts arrive (PDFs or photos).")}</p></div>` : html`
-        <div class="list">${projects.map((p, i) => html`<${FolderRow} key=${p.path} p=${p} first=${i === 0} onOpen=${(path) => go("folder", path)} />`)}</div>`}
+        <div class="list">${projects.map((p, i) => html`<${FolderRow} key=${p.path} p=${p} first=${i === 0} tick=${tick} onOpen=${(path) => go("folder", path)} />`)}</div>`}
     </div>
     ${adding && html`<${NewClient} onClose=${() => setAdding(false)} onCreated=${(path) => { setAdding(false); go("folder", path); }} />`}`;
 }

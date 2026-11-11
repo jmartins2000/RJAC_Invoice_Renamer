@@ -304,15 +304,16 @@ class Api:
         """Label for the folder's main button: read N new files (with an estimated cost) or review."""
         if not os.path.isdir(path):
             return {"label": i18n.tr("Folder not found"), "enabled": False, "new": 0}
-        n = len(history.new_pdfs(path))
+        files = history.new_pdfs(path)
+        n = len(files)
         if not n:
-            return {"label": i18n.tr("Review & rename"), "enabled": True, "new": 0}
+            return {"label": i18n.tr("Review & rename"), "enabled": True, "new": 0, "files": []}
         mid = settings.load().get("model") or models.default_model()
         cost = history.recent_cost_per_read() or models.cost_per_invoice(mid)
-        label = f"Read {n} new file{'s' if n != 1 else ''}"
+        label = i18n.tr("Read 1 new file") if n == 1 else i18n.tr("Read {n} new files", n=n)
         if cost:
-            label += f" · ~€{max(0.01, n * cost * self._eur):.2f}"
-        return {"label": label, "enabled": True, "new": n}
+            label += f" · ~€{i18n.money(max(0.01, n * cost * self._eur))}"
+        return {"label": label, "enabled": True, "new": n, "files": sorted(files)[:300], "cost": label.split(" · ")[-1] if cost else ""}
 
     def change_dest(self, path):
         project = history.project(path) or {}
@@ -508,7 +509,7 @@ class Api:
 
     def _update_dict(self):
         i = self._update
-        return {"version": i.version, "notes": i.notes or "Improvements and fixes.",
+        return {"version": i.version, "notes": i.notes or i18n.tr("Improvements and fixes."),
                 "direct": bool(i.asset_url)} if i else None
 
     def releases(self):
@@ -660,7 +661,7 @@ class Api:
         except Exception as e:
             return {"error": i18n.tr("Couldn't prepare the feedback: {e}", e=e)}
         try:
-            self._emit("feedback_status", f"Sending {len(data) / 1e6:.1f} MB…")
+            self._emit("feedback_status", i18n.tr("Sending {mb} MB…", mb=f"{len(data) / 1e6:.1f}".replace(".", "," if i18n.lang() == "pt" else ".")))
             feedback.send(data, meta)
             return {"ok": True}
         except Exception:
