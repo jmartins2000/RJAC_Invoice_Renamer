@@ -47,7 +47,7 @@ COLUMN_RULES = [
     ("supplier", lambda h: h in ("emitente", "fornecedor", "comerciante") or h.startswith("emitente")),
     # A column like "Nº Fatura / ATCUD" holds both: treat it as the number (split later)
     ("number", lambda h: "atcud" in h and ("fatura" in h or "/" in h or "doc" in h)),
-    ("atcud", lambda h: "atcud" in h or "codigo de controlo" in h or "cod. controlo" in h),
+    ("atcud", lambda h: "atcud" in h or "controlo" in h),
     ("number", lambda h: ("fatura" in h or "documento" in h or h.startswith("n")) and
      ("n." in h or "no" in h.split() or "num" in h or "nº" in h or "n" == h.split()[0] or "/" in h)),
     ("date", lambda h: "data" in h and ("emiss" in h or h == "data")),
@@ -70,6 +70,10 @@ def _decode(raw):
 
 
 def _number(s):
+    if isinstance(s, bool):
+        return None
+    if isinstance(s, (int, float)):  # straight from Excel
+        return float(s)
     s = str(s or "").strip().replace("€", "").replace(" ", "").replace(" ", "")
     if not s:
         return None
@@ -85,6 +89,8 @@ def _number(s):
 
 
 def _date(s):
+    if isinstance(s, (datetime.datetime, datetime.date)):  # straight from Excel
+        return (s.date() if isinstance(s, datetime.datetime) else s).isoformat()
     s = str(s or "").strip()[:10]
     for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d", "%d.%m.%Y"):
         try:
@@ -131,32 +137,54 @@ def parse(path):
     cols = _map_columns(rows[head_i])
     if "total" not in cols or not ({"supplier_nif", "supplier"} & set(cols)):
         raise ValueError("The e-Fatura export is missing the supplier or total columns.")
+    return rows_from_table(rows[head_i + 1:], cols)
+
+
+def _cell(v):
+    """A cell as text for names/numbers (Excel gives ints/floats/None)."""
+    if v is None:
+        return ""
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return str(v).strip()
+
+
+def build_row(get):
+    """One e-Fatura document from a getter of raw cell values by field. None if it has no total."""
+    text = lambda k: _cell(get(k))  # noqa: E731
+    nif, name = text("supplier_nif"), text("supplier_name")
+    if not nif and text("supplier"):  # "500000001 - Livraria Exemplo Lda"
+        m = re.match(r"^\s*(?:PT)?(\d{9})\s*[-–:]?\s*(.*)$", text("supplier"))
+        nif, name = (m.group(1), m.group(2).strip()) if m else ("", text("supplier"))
+    nif = re.sub(r"\D", "", nif)[-9:]
+    number, atcud = text("number"), text("atcud")
+    if " / " in number and not atcud:  # "FT A/29 / JFAB1234-29"
+        left, right = number.rsplit(" / ", 1)
+        if ATCUD.match(right.strip()):
+            number, atcud = left.strip(), right.strip()
+    doc_type = text("type")
+    total = _number(get("total"))
+    if total is None:
+        return None
+    credit = "credito" in _plain(doc_type) or _plain(doc_type).startswith("nc")
+    return {
+        "supplier_nif": nif, "supplier_name": name, "number": number, "atcud": atcud,
+        "date": _date(get("date")), "type": doc_type, "credit_note": credit,
+        "sector": text("sector"), "status": text("status"),
+        "base": _number(get("base")), "vat": _number(get("vat")), "total": abs(total),
+    }
+
+
+def rows_from_table(rows, cols):
+    """Data rows (lists of cells) + column mapping → e-Fatura documents (blank/total-less rows skipped)."""
     out = []
-    for r in rows[head_i + 1:]:
-        if not any(c.strip() for c in r):
+    for r in rows:
+        if not any(_cell(c) for c in r):
             continue
-        get = lambda k: r[cols[k]].strip() if k in cols and cols[k] < len(r) else ""  # noqa: E731
-        nif, name = get("supplier_nif"), get("supplier_name")
-        if not nif and get("supplier"):  # "500000001 - Livraria Exemplo Lda"
-            m = re.match(r"^\s*(?:PT)?(\d{9})\s*[-–:]?\s*(.*)$", get("supplier"))
-            nif, name = (m.group(1), m.group(2).strip()) if m else ("", get("supplier"))
-        nif = re.sub(r"\D", "", nif)[-9:]
-        number, atcud = get("number"), get("atcud")
-        if " / " in number and not atcud:  # "FT A/29 / JFAB1234-29"
-            left, right = number.rsplit(" / ", 1)
-            if ATCUD.match(right.strip()):
-                number, atcud = left.strip(), right.strip()
-        doc_type = get("type")
-        total = _number(get("total"))
-        if total is None:
-            continue
-        credit = "credito" in _plain(doc_type) or _plain(doc_type).startswith("nc")
-        out.append({
-            "supplier_nif": nif, "supplier_name": name, "number": number, "atcud": atcud,
-            "date": _date(get("date")), "type": doc_type, "credit_note": credit,
-            "sector": get("sector"), "status": get("status"),
-            "base": _number(get("base")), "vat": _number(get("vat")), "total": abs(total),
-        })
+        get = lambda k: r[cols[k]] if k in cols and cols[k] < len(r) else None  # noqa: E731
+        row = build_row(get)
+        if row:
+            out.append(row)
     return out
 
 
@@ -202,18 +230,32 @@ def import_files(project, paths):
     rows = [r for p in paths for r in parse(p)]  # parse all first: nothing is kept if a file is invalid
     for p in paths:
         _keep_copy(project, p)
+    store_rows(project, rows)
+    return len(rows), stored_count(project)
+
+
+def _key(r):
+    return r["supplier_nif"], norm_number(r["number"]) or f"{r['date']}|{r['total']:.2f}", r["date"]
+
+
+def store_rows(project, rows):
+    """Adds documents to a client's e-Fatura list (same supplier + number + date = same document).
+    Returns how many were new."""
+    project = os.path.abspath(project)
     now = datetime.datetime.now().isoformat(timespec="seconds")
-    added = 0
     with history._lock:
         db = _db()
+        known = {tuple(k) for k in db.execute("SELECT supplier_nif, number, date FROM efatura WHERE project=?",
+                                               (project,)).fetchall()}
+        new = 0
         for r in rows:
-            key_number = norm_number(r["number"]) or f"{r['date']}|{r['total']:.2f}"
-            cur = db.execute("INSERT OR REPLACE INTO efatura VALUES (?,?,?,?,?,?)",
-                             (project, r["supplier_nif"], key_number, r["date"],
-                              json.dumps(r, ensure_ascii=False), now))
-            added += cur.rowcount > 0
+            nif, num, date = _key(r)
+            new += (nif, num, date) not in known
+            known.add((nif, num, date))
+            db.execute("INSERT OR REPLACE INTO efatura VALUES (?,?,?,?,?,?)",
+                       (project, nif, num, date, json.dumps(r, ensure_ascii=False), now))
         db.commit()
-    return len(rows), stored_count(project)
+    return new
 
 
 def stored_count(project):

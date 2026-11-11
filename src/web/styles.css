@@ -343,3 +343,8 @@ section:first-child { padding-top: 8px; }
 
 .client-name { margin: 2px 0 4px; word-break: break-word; }
 .block { display: block; }
+.versions { max-height: 340px; overflow-y: auto; border: 1px solid var(--frost); border-radius: 10px; margin-top: 12px; }
+.version-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--frost); }
+.version-row:last-child { border-bottom: none; }
+.version-row .grow { min-width: 0; }
+.btn-col { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }

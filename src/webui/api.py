@@ -460,6 +460,24 @@ class Api:
         return {"version": i.version, "notes": i.notes or "Improvements and fixes.",
                 "direct": bool(i.asset_url)} if i else None
 
+    def releases(self):
+        """Published versions this computer can install (for going back to an earlier one)."""
+        from packaging.version import Version
+        self._releases = {i.version: i for i in updater.list_releases()}
+        return [{"version": i.version, "date": i.date, "current": i.version == __version__,
+                 "newer": Version(i.version) > Version(__version__),
+                 "notes": next((ln.strip(" -*#") for ln in (i.notes or "").splitlines()
+                                if ln.strip() and "full changelog" not in ln.lower()), "")[:140]}
+                for i in self._releases.values()]
+
+    def install_version(self, version):
+        """Installs a specific published version (older or newer). Same flow as an update."""
+        info = getattr(self, "_releases", {}).get(version)
+        if not info:
+            return {"error": "That version isn't available any more."}
+        self._update = info
+        return self.update_install()
+
     def update_install(self):
         """Downloads (progress events) and starts the installer. Returns what to tell the user."""
         info = self._update

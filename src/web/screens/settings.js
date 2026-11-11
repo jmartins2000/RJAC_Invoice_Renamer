@@ -1,6 +1,40 @@
 // Settings (key, model, fields, appearance, updates) and Fields & filename.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
-import { api, Check, confirmBox, ctx, FeedbackButton, html, Icon, Menu, Modal, Toggle, TopBar } from "../ui.js";
+import { api, Check, confirmBox, ctx, FeedbackButton, html, Icon, Menu, Modal, niceDate, Toggle, TopBar, usePy } from "../ui.js";
+
+/** Install any published version, e.g. go back to an earlier one if a new version causes trouble. */
+function VersionsDialog({ onClose }) {
+  const [list, setList] = useState(null);
+  const [state, setState] = useState("idle");
+  const [progress, setProgress] = useState(0);
+  const [msg, setMsg] = useState(null);
+  usePy("update_progress", setProgress, []);
+  useEffect(() => { api.releases().then(setList); }, []);
+  const install = async (r) => {
+    const older = !r.newer;
+    if (!(await confirmBox({ title: `Install version ${r.version}?`, ok: `Install ${r.version}`,
+      text: older ? "Your clients, history and settings are kept. Features added after this version won't be there, " +
+        "and the app will offer the newest version again when you open it (you can ignore it)." : "Your clients, history and settings are kept." }))) return;
+    setState("downloading"); setProgress(0); setMsg(null);
+    const res = await api.install_version(r.version);
+    if (res.error) { setState("idle"); setMsg({ err: true, text: res.error }); }
+    else { setState("done"); setMsg({ text: res.message }); }
+  };
+  return html`<${Modal} onClose=${state === "downloading" ? null : onClose} width=${560}>
+    <h2>Install another version</h2>
+    <p class="muted">If a new version gives you trouble, you can go back to an earlier one here.</p>
+    ${list === null ? html`<p class="muted">Loading versions…</p>` : list.length === 0 ? html`<p class="error small">Couldn't load the versions (no internet?).</p>` : html`
+      <div class="versions">${list.map((r) => html`<div class="version-row">
+        <div class="grow"><b>${r.version}</b> <span class="muted small">· ${niceDate(r.date, true)}</span>
+          ${r.notes && html`<small class="muted block ellipsis">${r.notes}</small>`}</div>
+        ${r.current ? html`<span class="muted small">Installed</span>` :
+          html`<button class="btn small" disabled=${state === "downloading"} onClick=${() => install(r)}>${r.newer ? "Update" : "Install"}</button>`}
+      </div>`)}</div>`}
+    ${state === "downloading" && html`<div class="bar mt"><div style=${{ width: `${Math.round(progress * 100)}%` }}></div></div>`}
+    ${msg && html`<p class=${msg.err ? "error small" : "muted small"}>${msg.text}</p>`}
+    <div class="actions"><button class="btn" disabled=${state === "downloading"} onClick=${onClose}>Close</button></div>
+  <//>`;
+}
 
 export function Settings({ go, appearance, setAppearance, onUpdateFound }) {
   const [info, setInfo] = useState(null);
@@ -11,6 +45,7 @@ export function Settings({ go, appearance, setAppearance, onUpdateFound }) {
   const [models, setModels] = useState(null);
   const [modelMsg, setModelMsg] = useState(null);
   const [upd, setUpd] = useState(null);
+  const [versions, setVersions] = useState(false);
   const input = useRef();
   useEffect(() => {
     ctx.screen = "Settings"; ctx.folder = null;
@@ -80,9 +115,13 @@ export function Settings({ go, appearance, setAppearance, onUpdateFound }) {
       </section>
       <section class="row-sec">
         <div><h3>Updates</h3><p class="muted">Version ${info.version}${upd === "latest" ? " · you have the latest version" : upd === "found" ? " · a new version is available" : ""}</p></div>
-        <button class="btn" disabled=${upd === "checking"} onClick=${checkUpdates}>${upd === "checking" ? "Checking…" : "Check now"}</button>
+        <div class="btn-col">
+          <button class="btn" disabled=${upd === "checking"} onClick=${checkUpdates}>${upd === "checking" ? "Checking…" : "Check now"}</button>
+          <button class="link small" onClick=${() => setVersions(true)}>Other versions…</button>
+        </div>
       </section>
-    </div>`;
+    </div>
+    ${versions && html`<${VersionsDialog} onClose=${() => setVersions(false)} />`}`;
 }
 
 const TYPES = [["text", "Text"], ["number", "Number"], ["date", "Date"]];

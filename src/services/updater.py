@@ -60,6 +60,35 @@ def check_for_update(current=__version__, timeout=6):
         return None
 
 
+def list_releases(timeout=8):
+    """Every published release with an installer for this computer, newest first. [] if offline."""
+    try:
+        r = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=50", timeout=timeout,
+                         headers={"Accept": "application/vnd.github+json"})
+        if r.status_code != 200:
+            return []
+        suffix = _asset_suffix()
+        out = []
+        for rel in r.json():
+            if rel.get("draft") or rel.get("prerelease"):
+                continue
+            try:
+                v = Version(rel.get("tag_name", "").lstrip("vV"))
+            except InvalidVersion:
+                continue
+            asset = next((a for a in rel.get("assets", []) if suffix and a["name"].endswith(suffix)), None)
+            if not asset:
+                continue
+            info = UpdateInfo(str(v), (rel.get("body") or "").strip(), rel.get("html_url"),
+                              asset["browser_download_url"], asset["name"])
+            info.date = (rel.get("published_at") or "")[:10]
+            out.append(info)
+        return sorted(out, key=lambda i: Version(i.version), reverse=True)
+    except (requests.RequestException, ValueError, KeyError) as e:
+        print(f"Couldn't list releases: {e}")
+        return []
+
+
 def download(info, progress=None):
     """Downloads the installer to a temp folder. progress(fraction) is called as it goes."""
     dest = os.path.join(tempfile.mkdtemp(prefix="rjac-update-"), info.asset_name)
