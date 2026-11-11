@@ -254,6 +254,24 @@ n1 = [d for s in again["sheets"] if s["sheet"] == "2026" for d in s["documents"]
 check(len(n1) == 1 and n1[0]["code"] == 2 and n1[0]["doc"]["atcud"] == "JFNN11AA-1",
       "the new document is written with its ATCUD and its code")
 
+c6 = os.path.join(WORK, "Cliente Mapeado")
+os.makedirs(c6)
+history.add_project(c6)
+odd = os.path.join(wbx, "renamed_columns.xlsx")
+pv = {x["sheet"]: x for x in workbook.preview(odd, c6)}
+check(pv["2026"]["looks_like_data"] and not pv["2026"]["layout"], "unknown layout: offered for mapping by hand")
+manual = {"header_row": 1, "cols": {"date": 0, "supplier": 1, "number": 2, "total": 3, "vat": 4, "status": 5},
+          "code_col": 6}
+t = workbook.try_layout(odd, "2026", manual)
+want = expected["renamed_columns.xlsx"]["sheets"]["2026"]
+check((t["documents"], t["coded"], t["total"]) == (want["documents"], want["coded"], want["total"]),
+      f"mapping by hand gives the right result ({t['documents']} docs, {t['total']})")
+workbook.import_workbook(c6, odd, data=workbook.read(odd, overrides={"2026": manual}))
+pv2 = {x["sheet"]: x for x in workbook.preview(odd, c6)}
+check(bool(pv2["2026"]["layout"]), "the mapping is remembered for this client")
+again6 = workbook.read(odd, saved=workbook.saved_layouts(c6))
+check(len(again6["sheets"][0]["documents"]) == want["documents"], "next import of the same workbook needs no help")
+
 shutil.rmtree(WORK, ignore_errors=True)
 print("\nALL OK" if not failures else f"\n{len(failures)} FAILED")
 sys.exit(1 if failures else 0)

@@ -743,22 +743,49 @@ class Api:
         w = workbook.info(path)
         return {"name": w["name"], "imported": w["imported_at"][:10]} if w else None
 
-    def efatura_import_workbook(self, path):
-        """Reads the client's own "Conferência EF" workbook into the client (documents + codes)."""
-        chosen = _first(self._window.create_file_dialog(
-            webview.FileDialog.OPEN, file_types=("Excel workbooks (*.xlsx;*.xlsm)", "All files (*.*)")))
+    def efatura_import_workbook(self, path, again=False):
+        """Opens the client's "Conferência EF" workbook. If every sheet with documents is recognised it's
+        imported straight away ({"imported": ...}); otherwise the sheets come back for mapping by hand
+        ({"mapping": ...}). again=True reopens the last file for mapping (to adjust how it was read)."""
+        if again and getattr(self, "_wb_pending", None):
+            chosen = self._wb_pending
+        else:
+            chosen = _first(self._window.create_file_dialog(
+                webview.FileDialog.OPEN, file_types=("Excel workbooks (*.xlsx;*.xlsm)", "All files (*.*)")))
         if not chosen:
             return None
+        self._wb_pending = chosen
         try:
-            r = workbook.import_workbook(path, chosen)
-        except ValueError as e:
-            return {"error": str(e)}
+            sheets = workbook.preview(chosen, path)
         except Exception as e:  # damaged / not an Excel file
             return {"error": f"Couldn't read that workbook: {e}"}
+        unknown = [s for s in sheets if s["looks_like_data"] and not s["layout"]]
+        if not unknown and not again and any(s["layout"] for s in sheets):
+            return {"imported": self._wb_import(path, chosen)}
+        return {"mapping": {"file": os.path.basename(chosen), "sheets": sheets,
+                            "fields": [{"key": k, "label": v} for k, v in workbook.FIELDS]}}
+
+    def efatura_workbook_try(self, sheet, layout):
+        """What a mapping would import from one sheet (live check in the mapping screen)."""
+        try:
+            return workbook.try_layout(self._wb_pending, sheet, layout)
+        except Exception as e:
+            return {"documents": 0, "coded": 0, "total": 0, "examples": [], "error": str(e)}
+
+    def efatura_workbook_confirm(self, path, layouts, skip):
+        """Imports the pending workbook with the sheets mapped by hand (remembered for this client)."""
+        try:
+            return {"imported": self._wb_import(path, self._wb_pending, layouts, skip)}
+        except ValueError as e:
+            return {"error": str(e)}
+
+    def _wb_import(self, path, file, layouts=None, skip=()):
+        data = workbook.read(file, overrides=layouts or {}, saved=workbook.saved_layouts(path), skip=set(skip))
+        r = workbook.import_workbook(path, file, data=data)
         project = history.project(path) or {}
         r["offer_details"] = bool((r["client_name"] and not project.get("name"))
                                   or (r["client_nif"] and not project.get("nif")))
-        r["file"] = os.path.basename(chosen)
+        r["file"] = os.path.basename(file)
         return r
 
     def efatura_export_workbook(self, path):

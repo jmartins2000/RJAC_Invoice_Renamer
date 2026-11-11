@@ -361,3 +361,22 @@ section:first-child { padding-top: 8px; }
 .wb-head .chip { margin-left: auto; }
 .btn.more { margin: 10px 12px; }
 .notice.info { background: var(--selected); border-radius: 8px; padding: 10px 14px; margin-top: 12px; }
+.sheet-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 10px; }
+.mapper-bar { display: flex; align-items: center; gap: 24px; margin-bottom: 8px; }
+.check-inline { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.year-in { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.year-in .input { width: 80px; height: 32px; }
+.map-table-wrap { max-height: 300px; overflow: auto; border: 1px solid var(--frost); border-radius: 8px; margin: 8px 0 4px; }
+.map-table { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.map-table th { position: sticky; top: 0; background: var(--snowfield); padding: 6px; z-index: 1; }
+.map-table select { font: inherit; font-size: 12px; padding: 4px; border-radius: 6px; border: 1px solid var(--field-border); background: var(--snow); color: var(--ink); max-width: 150px; }
+.map-table select.set { border-color: var(--evergreen); background: var(--selected); color: var(--evergreen); font-weight: 600; }
+.map-table td { padding: 4px 8px; border-top: 1px solid var(--frost); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.map-table .rn { position: sticky; left: 0; background: var(--snowfield); color: var(--lichen); text-align: right; cursor: pointer; min-width: 34px; }
+.map-table .rn:hover { color: var(--evergreen); font-weight: 700; }
+.map-table tr.hdr td { background: var(--selected); color: var(--evergreen); font-weight: 700; }
+.map-table tr.above td:not(.rn) { opacity: .45; }
+.map-result { margin-top: 10px; }
+.small-cmp { font-size: 12px; margin-top: 6px; }
+.actions .spacer { flex: 1; }
+.small-cmp td, .small-cmp th { white-space: nowrap; }

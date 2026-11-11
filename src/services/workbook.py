@@ -114,8 +114,7 @@ def _subtotals(ws_f, ws_v, layout, upto):
                 field = by_col.get(col)
                 if field in ("total", "vat", "base"):
                     val = ws_v.cell(row=c.row, column=c.column).value
-                    if isinstance(val, (int, float)):
-                        out[field] = (float(val), int(m.group(2)), int(m.group(3)))
+                    out[field] = (float(val) if isinstance(val, (int, float)) else None, int(m.group(2)), int(m.group(3)))
     return out
 
 
@@ -177,7 +176,10 @@ def read(path, overrides=None, saved=None, skip=()):
         subtotals = _subtotals(wb_f[ws.title], ws, layout, max(h, (first or h) - 1))
         hidden = {r for r, d in ws.row_dimensions.items() if d.hidden}
         checks = []
+        uncalculated = any(v is None for v, _a, _b in subtotals.values())
         for field, (value, a, b) in subtotals.items():
+            if value is None:
+                continue
             col = cols[field]
             # What Excel's SUBTOTAL adds: numeric cells in its range, visible rows only.
             excel_sum = sum(rows[r - 1][col] for r in range(a, min(b, len(rows)) + 1)
@@ -196,6 +198,7 @@ def read(path, overrides=None, saved=None, skip=()):
         sheets.append({
             "sheet": ws.title, "year": year, "layout": layout, "first_row": first, "last_row": last,
             "documents": docs, "skipped_rows": skipped, "unknown_codes": unknown_codes, "checks": checks,
+            "uncalculated": uncalculated,
         })
     return {"path": path, "client_name": client_name, "client_nif": client_nif,
             "codes": codes, "sheets": sheets}
@@ -232,7 +235,7 @@ def report(info):
                          + ("…" if len(s["skipped_rows"]) > 10 else ""))
         if s["unknown_codes"]:
             notes.append("codes not in the list: " + ", ".join(f"row {r} '{v}'" for r, v in s["unknown_codes"][:5]))
-        if not s["checks"]:
+        if not s["checks"] and s.get("uncalculated"):
             notes.append("totals not checked: the file has no calculated totals to compare with "
                          "(open it in Excel and save it once, then import again to check)")
         ok = all(c["ok"] for c in s["checks"]) and not s["unknown_codes"]

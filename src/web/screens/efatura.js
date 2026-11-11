@@ -129,7 +129,107 @@ function ActionMenu({ label, solid, options, disabled }) {
   </div>`;
 }
 
-function WorkbookReport({ r, path, onClose }) {
+// ---------- Mapping a workbook by hand: header row + what each column is ----------
+const emptyLayout = () => ({ header_row: null, cols: {}, code_col: null, year: null });
+
+function toColumns(layout) {  // layout → {columnIndex: fieldKey}
+  const m = {};
+  if (!layout) return m;
+  Object.entries(layout.cols || {}).forEach(([k, i]) => { m[i] = k; });
+  if (layout.code_col != null) m[layout.code_col] = "code";
+  return m;
+}
+function fromColumns(header_row, colmap, year, sample) {  // {columnIndex: fieldKey} → layout
+  const cols = {};
+  let code_col = null;
+  Object.entries(colmap).forEach(([i, k]) => { if (!k) return; if (k === "code") code_col = Number(i); else cols[k] = Number(i); });
+  const numHeader = header_row && sample[header_row - 1] && cols.number != null ? String(sample[header_row - 1][cols.number] || "") : "";
+  return { header_row, cols, code_col, year: year ? Number(year) : null, number_has_atcud: /atcud/i.test(numHeader) && cols.atcud == null };
+}
+const usable = (lay) => lay && lay.header_row && lay.cols.total != null && (lay.cols.supplier != null || lay.cols.supplier_nif != null);
+
+function SheetMapper({ sheet, fields, state, setState }) {
+  const [result, setResult] = useState(null);
+  const lay = fromColumns(state.header_row, state.colmap, state.year, sheet.rows);
+  useEffect(() => {
+    if (state.skip || !usable(lay)) { setResult(null); return; }
+    const id = setTimeout(() => api.efatura_workbook_try(sheet.sheet, lay).then(setResult), 250);
+    return () => clearTimeout(id);
+  }, [JSON.stringify(lay), state.skip]);
+  const width = sheet.rows.reduce((w, r) => Math.max(w, r.length), 0);
+  const setCol = (i, k) => {
+    const colmap = { ...state.colmap };
+    if (k) Object.keys(colmap).forEach((j) => { if (colmap[j] === k && k !== "") delete colmap[j]; });  // one column per field
+    colmap[i] = k;
+    setState({ ...state, colmap });
+  };
+  const yearNeeded = !sheet.year;
+  return html`<div class="mapper">
+    <div class="mapper-bar">
+      <label class="check-inline"><input type="checkbox" checked=${state.skip} onChange=${(e) => setState({ ...state, skip: e.target.checked })} /> This sheet has no documents (skip it)</label>
+      ${yearNeeded && !state.skip && html`<label class="year-in">Year <input class="input small mono" value=${state.year || ""} placeholder="2026"
+        onInput=${(e) => setState({ ...state, year: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></label>`}
+    </div>
+    ${!state.skip && html`
+      <p class="muted small">1. Click the number of the <b>header row</b> (the row with the column names). 2. Above each column, choose what it is. Columns you leave empty are ignored.</p>
+      <div class="map-table-wrap"><table class="map-table">
+        <thead><tr><th class="rn"></th>${Array.from({ length: width }, (_, i) => html`<th>
+          <select class=${state.colmap[i] ? "set" : ""} value=${state.colmap[i] || ""} onChange=${(e) => setCol(i, e.target.value)}>
+            <option value="">—</option>${fields.map((f) => html`<option value=${f.key}>${f.label}</option>`)}
+          </select></th>`)}</tr></thead>
+        <tbody>${sheet.rows.map((r, ri) => html`<tr class=${state.header_row === ri + 1 ? "hdr" : state.header_row && ri + 1 < state.header_row ? "above" : ""}>
+          <td class="rn" title="This is the header row" onClick=${() => setState({ ...state, header_row: ri + 1 })}>${ri + 1}</td>
+          ${Array.from({ length: width }, (_, i) => html`<td>${r[i] || ""}</td>`)}</tr>`)}</tbody>
+      </table></div>
+      <small class="muted">Showing the first ${sheet.rows.length} of ${sheet.total_rows} rows.</small>
+      <div class="map-result">
+        ${!usable(lay) ? html`<p class="muted small">Still needed: ${[!state.header_row && "the header row", lay.cols.total == null && "the Total column",
+            lay.cols.supplier == null && lay.cols.supplier_nif == null && "the Supplier (or Supplier NIF) column"].filter(Boolean).join(", ")}.</p>`
+          : !result ? html`<p class="muted small">Checking…</p>` : html`
+          <p><b>${result.documents.toLocaleString()} documents</b> · ${result.coded.toLocaleString()} with a code · total ${plain2(result.total)}
+            ${result.skipped ? html` · <span class="warn">${result.skipped} rows without a total are left out</span>` : ""}</p>
+          ${result.examples.length > 0 && html`<table class="cmp small-cmp"><thead><tr><th>Row</th><th>Supplier</th><th>NIF</th><th>Document</th><th>Date</th><th>Total</th><th>Code</th></tr></thead>
+            <tbody>${result.examples.map((d) => html`<tr><td>${d.row}</td><td>${d.supplier_name || "—"}</td><td>${d.supplier_nif || "—"}</td><td>${d.number || "—"}</td>
+              <td>${d.date || "—"}</td><td>${plain2(d.total)}</td><td>${d.code || "—"}</td></tr>`)}</tbody></table>`}
+          ${(result.notes || []).filter((n) => !n.includes("read correctly")).map((n) => html`<small class="muted block">· ${n}</small>`)}`}
+      </div>`}
+  </div>`;
+}
+
+function WorkbookMapper({ m, path, onClose, onImported }) {
+  const candidates = m.sheets.filter((s) => s.looks_like_data || s.layout);
+  const [states, setStates] = useState(() => Object.fromEntries(candidates.map((s) => [s.sheet,
+    { header_row: s.layout ? s.layout.header_row : null, colmap: toColumns(s.layout), year: s.year || (s.layout && s.layout.year) || null, skip: false }])));
+  const [cur, setCur] = useState((candidates.find((s) => !s.layout) || candidates[0] || {}).sheet);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const layoutOf = (s) => fromColumns(states[s.sheet].header_row, states[s.sheet].colmap, states[s.sheet].year, s.rows);
+  const ready = (s) => states[s.sheet].skip || (usable(layoutOf(s)) && (s.year || states[s.sheet].year));
+  const allReady = candidates.length > 0 && candidates.every(ready) && candidates.some((s) => !states[s.sheet].skip);
+  const go = async () => {
+    setBusy(true); setErr("");
+    const layouts = {}, skip = [];
+    candidates.forEach((s) => { if (states[s.sheet].skip) skip.push(s.sheet); else layouts[s.sheet] = layoutOf(s); });
+    const r = await api.efatura_workbook_confirm(path, layouts, skip);
+    setBusy(false);
+    if (r.error) setErr(r.error); else onImported(r.imported);
+  };
+  const sheet = candidates.find((s) => s.sheet === cur);
+  return html`<${Modal} onClose=${busy ? null : onClose} width=${1100}>
+    <h2>How should this workbook be read?</h2>
+    <p class="muted">${m.file}: the app couldn't tell on its own how ${candidates.filter((s) => !s.layout).length === 1 ? "one sheet is" : "some sheets are"} laid out. Show it once and it's remembered for this client.</p>
+    ${candidates.length === 0 ? html`<p class="error small">No sheet in this workbook looks like a list of documents.</p>` : html`
+      <div class="sheet-tabs">${candidates.map((s) => html`<button class=${"fchip" + (s.sheet === cur ? " on" : "")} onClick=${() => setCur(s.sheet)}>
+        ${s.sheet} ${states[s.sheet].skip ? "· skipped" : ready(s) ? "✓" : "· needs you"}</button>`)}</div>
+      ${sheet && html`<${SheetMapper} key=${sheet.sheet} sheet=${sheet} fields=${m.fields} state=${states[sheet.sheet]}
+        setState=${(st) => setStates({ ...states, [sheet.sheet]: st })} />`}`}
+    ${err && html`<p class="error small">${err}</p>`}
+    <div class="actions"><button class="btn" disabled=${busy} onClick=${onClose}>Cancel</button>
+      <button class="btn solid" disabled=${!allReady || busy} onClick=${go}>${busy ? "Importing…" : "Import"}</button></div>
+  <//>`;
+}
+
+function WorkbookReport({ r, path, onClose, onAdjust }) {
   const [applied, setApplied] = useState(false);
   const useDetails = async () => { await api.rename_client(path, r.client_name, r.client_nif); setApplied(true); };
   const allOk = r.report.every((s) => s.ok);
@@ -148,7 +248,8 @@ function WorkbookReport({ r, path, onClose }) {
         <span class=${!s.ok ? "chip small amber" : s.checked ? "chip small green" : "chip small grey"}>${!s.ok ? "Look at this" : s.checked ? "✓ Totals match" : "Not checked"}</span></div>
       ${s.notes.filter((n) => !n.includes("read correctly")).map((n) => html`<small class="muted block">· ${n}</small>`)}
     </div>`)}</div>
-    <div class="actions"><button class="btn solid" onClick=${onClose}>Done</button></div>
+    <div class="actions"><button class="link" onClick=${onAdjust}>Check how the columns were read…</button><span class="spacer"></span>
+      <button class="btn solid" onClick=${onClose}>Done</button></div>
   <//>`;
 }
 
@@ -160,6 +261,7 @@ export function Efatura({ path, go }) {
   const [sel, setSel] = useState(null);
   const [exported, setExported] = useState(null);
   const [report, setReport] = useState(null);
+  const [mapping, setMapping] = useState(null);
   const [limit, setLimit] = useState(300);
   const [busy, setBusy] = useState("");
   const pickPeriod = (f) => {
@@ -180,15 +282,23 @@ export function Efatura({ path, go }) {
     if (r.error) toast(r.error, "warn"); else toast(r.message);
     const f = await api.folder(path); setInfo(f); load();
   };
+  const imported = async (r) => {
+    setMapping(null); setReport(r);
+    const f = await api.folder(path); setInfo(f);
+    if (!view || !view.stored) setPeriod(pickPeriod(f)); else load();
+  };
+  const adjust = async () => {
+    const r = await api.efatura_import_workbook(path, true);
+    if (r && r.mapping) { setReport(null); setMapping(r.mapping); }
+  };
   const importWorkbook = async () => {
     setBusy("Reading the workbook…");
     try {
       const r = await api.efatura_import_workbook(path);
       if (!r) return;
       if (r.error) { toast(r.error, "warn"); return; }
-      setReport(r);
-      const f = await api.folder(path); setInfo(f);
-      if (!view || !view.stored) setPeriod(pickPeriod(f)); else load();
+      if (r.mapping) { setMapping(r.mapping); return; }
+      await imported(r.imported);
     } finally { setBusy(""); }
   };
   const exp = async () => { const ok = await api.efatura_export(path, period.start, period.end, period.short); if (ok !== null) setExported(ok); };
@@ -258,5 +368,6 @@ export function Efatura({ path, go }) {
         </div>
         <div class="ef-right">${selected ? html`<${Detail} key=${selected.id} item=${selected} path=${path} reload=${load} codes=${codes} />` : view && html`<p class="muted pad">Nothing selected.</p>`}</div>
       </div>`}
-    ${report && html`<${WorkbookReport} r=${report} path=${path} onClose=${() => { setReport(null); load(); }} />`}`;
+    ${report && html`<${WorkbookReport} r=${report} path=${path} onAdjust=${adjust} onClose=${() => { setReport(null); load(); }} />`}
+    ${mapping && html`<${WorkbookMapper} m=${mapping} path=${path} onClose=${() => setMapping(null)} onImported=${imported} />`}`;
 }
