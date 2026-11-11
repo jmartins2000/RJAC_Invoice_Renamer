@@ -294,7 +294,7 @@ section:first-child { padding-top: 8px; }
 .ef-item { display: flex; align-items: center; gap: 14px; padding: 12px; border-radius: 8px; cursor: pointer; }
 .ef-item:hover { background: var(--snowfield); }
 .ef-item.on { background: var(--selected); }
-.ef-item .chip { width: 88px; text-align: center; }
+.ef-item .chip { width: 108px; text-align: center; overflow: hidden; text-overflow: ellipsis; }
 .ef-item-text { flex: 1; min-width: 0; }
 .ef-item-text b { display: block; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ef-item-text small { display: block; font-size: 12px; margin-top: 2px; }
