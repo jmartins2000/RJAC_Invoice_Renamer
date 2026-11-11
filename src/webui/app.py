@@ -51,6 +51,46 @@ def create(api=None, debug=False):
     return api, window
 
 
+def _never_cache_files():
+    """pywebview asks the browser not to keep the page files, but bottle.static_file returns its own
+    response and those headers are lost: only Last-Modified is sent, so the browser may keep using an
+    old copy for hours after an update (seen on Windows: 2.3.0 installed, 2.2.0 screens shown).
+    Put the headers on the response that is actually sent."""
+    import bottle
+    if getattr(bottle.static_file, "_rjac", False):
+        return
+    original = bottle.static_file
+
+    def static_file(*a, **k):
+        r = original(*a, **k)
+        if isinstance(r, bottle.HTTPResponse):
+            r.set_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            r.set_header("Pragma", "no-cache")
+            r.set_header("Expires", "0")
+        return r
+    static_file._rjac = True
+    bottle.static_file = static_file
+
+
+def _web_storage():
+    """Windows (WebView2): a storage folder per app version, so an update never starts with the
+    previous version's cached screens. Older versions' folders are removed."""
+    import shutil
+    from src.services.settings import _dir
+    from src.version import __version__
+    base = os.path.join(_dir(), "webview")
+    here = os.path.join(base, __version__)
+    try:
+        if os.path.isdir(base):
+            for name in os.listdir(base):
+                if name != __version__:
+                    shutil.rmtree(os.path.join(base, name), ignore_errors=True)
+        os.makedirs(here, exist_ok=True)
+    except OSError:
+        return None
+    return here
+
+
 def start(func=None, args=None, debug=False):
     # The built-in server labels files by extension. On Windows Python reads those labels from the
     # registry, which often gets .js wrong; Edge WebView2 then refuses to run the page's modules.
@@ -59,9 +99,15 @@ def start(func=None, args=None, debug=False):
     mimetypes.add_type("text/css", ".css")
     mimetypes.add_type("font/woff2", ".woff2")
     gui = "edgechromium" if sys.platform == "win32" else None
+    _never_cache_files()
+    extra = {}
+    if sys.platform == "win32":
+        storage = _web_storage()
+        if storage:
+            extra["storage_path"] = storage
     try:
         webview.start(func, args, debug=debug, http_server=True, private_mode=False, gui=gui,
-                      http_port=_free_port())
+                      http_port=_free_port(), **extra)
     except Exception:
         if sys.platform == "win32":
             _windows_engine_missing()
