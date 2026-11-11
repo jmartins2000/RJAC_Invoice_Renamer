@@ -21,6 +21,20 @@ export const api = new Proxy({}, {
   get: (_, name) => async (...args) => { await ready; return window.pywebview.api[name](...args); },
 });
 
+/** For calls that are safe to repeat (reading the client list, app info): if the answer doesn't come
+ * back in time (on macOS a call is very occasionally lost), ask again instead of leaving the screen empty. */
+export async function ask(name, ...args) {
+  for (let attempt = 1; ; attempt++) {
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 6000 * attempt));
+    try {
+      return await Promise.race([api[name](...args), timeout]);
+    } catch (e) {
+      if (String(e.message) !== "timeout" || attempt >= 3) throw e;
+      api.log_ui(`${name}() didn't answer in ${6 * attempt}s; asking again`).catch(() => {});
+    }
+  }
+}
+
 /** Subscribe to a push from Python (api._emit). */
 export function usePy(event, fn, deps = []) {
   useEffect(() => {

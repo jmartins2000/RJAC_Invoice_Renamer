@@ -168,6 +168,8 @@ class Api:
 
     # ================================================================== clients (folders)
     def projects(self):
+        import time
+        t0 = time.time()
         out = []
         for p in history.projects():
             out.append({
@@ -176,6 +178,8 @@ class Api:
                 "exists": os.path.isdir(p["path"]), "invoices": p["invoices"], "total": round(p["total"], 2),
                 "runs": p["runs"], "last_run": (p["last_run"] or "")[:10], "to_check": p["to_check"],
             })
+        if time.time() - t0 > 2:
+            print(f"[slow] projects() took {time.time() - t0:.1f}s", flush=True)
         return out
 
     def new_files(self, path):

@@ -1,6 +1,6 @@
 // Home (your clients), Welcome (API key) and Done (after renaming).
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
-import { api, ctx, FeedbackButton, html, Icon, Modal, money, niceDate, plural, TopBar } from "../ui.js";
+import { api, ask, ctx, FeedbackButton, html, Icon, Modal, money, niceDate, plural, TopBar } from "../ui.js";
 
 // ---------- Home ----------
 function FolderRow({ p, first, onOpen }) {
@@ -62,7 +62,7 @@ function NewClient({ onClose, onCreated }) {
 export function Home({ go, update, onUpdate }) {
   const [projects, setProjects] = useState(null);
   const [adding, setAdding] = useState(false);
-  useEffect(() => { ctx.screen = "Home"; ctx.folder = null; api.projects().then(setProjects); }, []);
+  useEffect(() => { ctx.screen = "Home"; ctx.folder = null; ask("projects").then(setProjects); }, []);
   const add = () => setAdding(true);
   return html`
     <div class="topbar">
