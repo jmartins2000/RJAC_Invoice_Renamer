@@ -22,6 +22,7 @@ from src.services import api_key as key_store
 from src.services import efatura, history, models, periods, qr_at, settings, updater, workbook
 from src.services import fields as fieldmod
 from src.services.excel_exporter import FILE_COLUMNS, ExcelExporter
+from src.services.gemini_service import friendly_error as gemini_friendly
 from src.services.review_session import ReviewSession
 from src.version import __version__
 
@@ -762,7 +763,23 @@ class Api:
         unknown = [s for s in sheets if s["looks_like_data"] and not s["layout"]]
         if not unknown and not again and any(s["layout"] for s in sheets):
             return {"imported": self._wb_import(path, chosen)}
-        return {"mapping": {"file": os.path.basename(chosen), "sheets": sheets,
+        agent = None
+        key = key_store.get_api_key()
+        if unknown and key:  # ask Gemini to work out the layout; shown as a suggestion to confirm
+            try:
+                from src.services import layout_agent
+                res = layout_agent.propose(key, chosen)
+                for sh in unknown:
+                    if sh["sheet"] in res["layouts"]:
+                        sh["layout"] = {**res["layouts"][sh["sheet"]], "suggested": True}
+                    elif sh["sheet"] in res["skip"]:
+                        sh["suggested_skip"] = True
+                agent = {"cost_eur": round(res["cost_usd"] * self._eur, 3),
+                         "found": sum(1 for sh in unknown if sh["layout"] or sh.get("suggested_skip"))}
+            except Exception as e:
+                print(f"Layout agent failed: {e}")
+                agent = {"error": gemini_friendly(e)}
+        return {"mapping": {"file": os.path.basename(chosen), "sheets": sheets, "agent": agent,
                             "fields": [{"key": k, "label": v} for k, v in workbook.FIELDS]}}
 
     def efatura_workbook_try(self, sheet, layout):

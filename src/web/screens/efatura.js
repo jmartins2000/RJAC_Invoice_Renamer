@@ -199,7 +199,8 @@ function SheetMapper({ sheet, fields, state, setState }) {
 function WorkbookMapper({ m, path, onClose, onImported }) {
   const candidates = m.sheets.filter((s) => s.looks_like_data || s.layout);
   const [states, setStates] = useState(() => Object.fromEntries(candidates.map((s) => [s.sheet,
-    { header_row: s.layout ? s.layout.header_row : null, colmap: toColumns(s.layout), year: s.year || (s.layout && s.layout.year) || null, skip: false }])));
+    { header_row: s.layout ? s.layout.header_row : null, colmap: toColumns(s.layout), year: s.year || (s.layout && s.layout.year) || null,
+      skip: !!s.suggested_skip }])));
   const [cur, setCur] = useState((candidates.find((s) => !s.layout) || candidates[0] || {}).sheet);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -217,10 +218,13 @@ function WorkbookMapper({ m, path, onClose, onImported }) {
   const sheet = candidates.find((s) => s.sheet === cur);
   return html`<${Modal} onClose=${busy ? null : onClose} width=${1100}>
     <h2>How should this workbook be read?</h2>
-    <p class="muted">${m.file}: the app couldn't tell on its own how ${candidates.filter((s) => !s.layout).length === 1 ? "one sheet is" : "some sheets are"} laid out. Show it once and it's remembered for this client.</p>
+    ${m.agent && m.agent.found ? html`<div class="notice info"><p><b>Gemini worked out the layout</b> of the sheets the app didn't recognise
+        (cost €${m.agent.cost_eur.toFixed(3)}). Check each sheet below: the result under the table shows what will be imported. Then press Import.</p></div>`
+      : html`<p class="muted">${m.file}: the app couldn't tell on its own how some sheets are laid out.
+        ${m.agent && m.agent.error ? `Gemini couldn't help either (${m.agent.error}). ` : ""}Show it once and it's remembered for this client.</p>`}
     ${candidates.length === 0 ? html`<p class="error small">No sheet in this workbook looks like a list of documents.</p>` : html`
       <div class="sheet-tabs">${candidates.map((s) => html`<button class=${"fchip" + (s.sheet === cur ? " on" : "")} onClick=${() => setCur(s.sheet)}>
-        ${s.sheet} ${states[s.sheet].skip ? "· skipped" : ready(s) ? "✓" : "· needs you"}</button>`)}</div>
+        ${s.sheet} ${states[s.sheet].skip ? "· skipped" : !ready(s) ? "· needs you" : s.layout && s.layout.suggested ? "· suggested" : "✓"}</button>`)}</div>
       ${sheet && html`<${SheetMapper} key=${sheet.sheet} sheet=${sheet} fields=${m.fields} state=${states[sheet.sheet]}
         setState=${(st) => setStates({ ...states, [sheet.sheet]: st })} />`}`}
     ${err && html`<p class="error small">${err}</p>`}
@@ -292,12 +296,12 @@ export function Efatura({ path, go }) {
     if (r && r.mapping) { setReport(null); setMapping(r.mapping); }
   };
   const importWorkbook = async () => {
-    setBusy("Reading the workbook…");
+    setBusy("Reading the workbook… (if its layout is new, Gemini works it out: up to a minute)");
     try {
       const r = await api.efatura_import_workbook(path);
       if (!r) return;
       if (r.error) { toast(r.error, "warn"); return; }
-      if (r.mapping) { setMapping(r.mapping); return; }
+      if (r.mapping) { setMapping(r.mapping); return; }  // (Gemini may have pre-filled it)
       await imported(r.imported);
     } finally { setBusy(""); }
   };
