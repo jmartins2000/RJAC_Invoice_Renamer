@@ -1,7 +1,7 @@
 // Feedback window (message, snipped screenshot, optional folder data) and the update dialog.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { domToPng } from "../vendor/modern-screenshot.mjs";
-import { api, Check, ctx, html, Icon, Modal, usePy } from "../ui.js";
+import { api, Check, ctx, html, Icon, Modal, t, tn, usePy } from "../ui.js";
 
 /** Covers the window with a faded picture of the page; drag to choose the part to send. */
 function Snip({ shot, onDone }) {
@@ -38,7 +38,7 @@ function Snip({ shot, onDone }) {
       ${sel && html`<div class="snip-sel" style=${{ left: sel.l, top: sel.t, width: sel.w, height: sel.h,
         backgroundImage: `url(${shot.src})`, backgroundSize: `${window.innerWidth}px ${window.innerHeight}px`,
         backgroundPosition: `${-sel.l}px ${-sel.t}px` }}></div>`}
-      <div class="snip-hint">Drag to select the part to send · Enter: whole page · Esc: cancel</div>
+      <div class="snip-hint">${t("Drag to select the part to send · Enter: whole page · Esc: cancel")}</div>
     </div>`;
 }
 
@@ -64,15 +64,15 @@ export function Feedback({ onClose }) {
       setSnipping({ src });
     } catch (e) {
       setSnipping(null);
-      setStatus({ err: true, text: "Couldn't take a screenshot: " + e });
+      setStatus({ err: true, text: t("Couldn't take a screenshot:") + " " + e });
     }
   };
   const send = async () => {
-    if (!message.trim()) { setStatus({ err: true, text: "Please write a few words about it first." }); return; }
-    setState("sending"); setStatus({ text: "Preparing…" });
+    if (!message.trim()) { setStatus({ err: true, text: t("Please write a few words about it first.") }); return; }
+    setState("sending"); setStatus({ text: t("Preparing…") });
     const r = await api.feedback_send(kind, message, shot, folderPath, folder ? include : false, screen);
-    if (r.ok) { setState("sent"); setStatus({ ok: true, text: "Thank you! Your feedback was sent." }); }
-    else if (r.saved) { setState("saved"); setStatus({ err: true, text: `Couldn't send it (no internet?). It was saved to your Desktop as "${r.saved.split(/[\\/]/).pop()}" — please email it to João.` }); }
+    if (r.ok) { setState("sent"); setStatus({ ok: true, text: t("Thank you! Your feedback was sent.") }); }
+    else if (r.saved) { setState("saved"); setStatus({ err: true, text: t("Couldn't send it (no internet?). It was saved to your Desktop as \"{file}\" — please email it to João.", { file: r.saved.split(/[\\/]/).pop() }) }); }
     else { setState("idle"); setStatus({ err: true, text: r.error }); }
   };
 
@@ -80,24 +80,24 @@ export function Feedback({ onClose }) {
   if (snipping) return html`<${Snip} shot=${snipping} onDone=${(img) => { setSnipping(null); if (img) setShot(img); }} />`;
   const busy = state === "sending";
   return html`<${Modal} onClose=${busy ? null : onClose} width=${620}>
-    <h2>Send feedback</h2>
-    <p class="muted small">Goes privately to João, with what's needed to look into it.</p>
+    <h2>${t("Send feedback")}</h2>
+    <p class="muted small">${t("Goes privately to João, with what's needed to look into it.")}</p>
     <div class="seg mt">${[["bug", "Report a problem"], ["idea", "Suggest an idea"]].map(([k, l]) =>
-      html`<button class=${kind === k ? "on" : ""} onClick=${() => setKind(k)}>${l}</button>`)}</div>
-    <label class="field-label">What happened, or what would help?</label>
+      html`<button class=${kind === k ? "on" : ""} onClick=${() => setKind(k)}>${t(l)}</button>`)}</div>
+    <label class="field-label">${t("What happened, or what would help?")}</label>
     <textarea class="input" rows="4" value=${message} onInput=${(e) => setMessage(e.target.value)} autofocus></textarea>
-    <div class="shot-head"><span class="field-label inline">Screenshot (optional)</span>
+    <div class="shot-head"><span class="field-label inline">${t("Screenshot (optional)")}</span>
       <span>
-        <button class="link" onClick=${take}><${Icon} name="camera" size=${14} /> Take screenshot</button>
-        <button class="link" onClick=${async () => { const s = await api.choose_image(); if (s) setShot(s); }}>Choose image…</button>
+        <button class="link" onClick=${take}><${Icon} name="camera" size=${14} /> ${t("Take screenshot")}</button>
+        <button class="link" onClick=${async () => { const s = await api.choose_image(); if (s) setShot(s); }}>${t("Choose image…")}</button>
       </span></div>
-    ${shot && html`<div class="shot"><img src=${shot} /><button class="btn icon small" title="Remove" onClick=${() => setShot(null)}><${Icon} name="x" size=${14} /></button></div>`}
+    ${shot && html`<div class="shot"><img src=${shot} /><button class="btn icon small" title=${t("Remove")} onClick=${() => setShot(null)}><${Icon} name="x" size=${14} /></button></div>`}
     ${folder && html`<div class="toggle-row"><${Check} on=${include} onChange=${setInclude} />
-      <div><b>Include this folder's invoices and data</b><small class="muted">"${folder.name}" · ${folder.files} file${folder.files !== 1 ? "s" : ""}, ${folder.mb} MB${folder.efatura ? " · plus its e-Fatura data" : ""} · never the API key</small></div></div>`}
+      <div><b>${t("Include this folder's invoices and data")}</b><small class="muted">"${folder.name}" · ${tn(folder.files, "{n} file", "{n} files")}, ${folder.mb} MB${folder.efatura ? " · " + t("plus its e-Fatura data") : ""} · ${t("never the API key")}</small></div></div>`}
     ${status && html`<p class=${status.err ? "error small" : status.ok ? "green small" : "muted small"}>${status.text}</p>`}
     <div class="actions">
-      <button class="btn" disabled=${busy} onClick=${onClose}>${state === "sent" || state === "saved" ? "Close" : "Cancel"}</button>
-      ${state !== "sent" && state !== "saved" && html`<button class="btn solid" disabled=${busy} onClick=${send}>${busy ? "Sending…" : "Send"}</button>`}
+      <button class="btn" disabled=${busy} onClick=${onClose}>${state === "sent" || state === "saved" ? t("Close") : t("Cancel")}</button>
+      ${state !== "sent" && state !== "saved" && html`<button class="btn solid" disabled=${busy} onClick=${send}>${busy ? t("Sending…") : t("Send")}</button>`}
     </div>
   <//>`;
 }
@@ -114,13 +114,13 @@ export function UpdateDialog({ info, onClose }) {
     else { setState("done"); setMsg({ text: r.message }); }
   };
   return html`<${Modal} onClose=${state === "downloading" ? null : onClose} width=${480}>
-    <h2>Version ${info.version} is ready</h2>
+    <h2>${t("Version {v} is ready", { v: info.version })}</h2>
     <div class="notes">${info.notes}</div>
     ${state === "downloading" && html`<div class="bar mt"><div style=${{ width: `${Math.round(progress * 100)}%` }}></div></div>`}
     ${msg && html`<p class=${msg.err ? "error small" : "muted small"}>${msg.text}</p>`}
     <div class="actions">
-      <button class="btn" disabled=${state === "downloading"} onClick=${onClose}>${state === "done" ? "Close" : "Later"}</button>
-      ${state !== "done" && html`<button class="btn solid" disabled=${state === "downloading"} onClick=${go}>${state === "downloading" ? "Downloading…" : msg ? "Try again" : "Update now"}</button>`}
+      <button class="btn" disabled=${state === "downloading"} onClick=${onClose}>${state === "done" ? t("Close") : t("Later")}</button>
+      ${state !== "done" && html`<button class="btn solid" disabled=${state === "downloading"} onClick=${go}>${state === "downloading" ? t("Downloading…") : msg ? t("Try again") : t("Update now")}</button>`}
     </div>
   <//>`;
 }

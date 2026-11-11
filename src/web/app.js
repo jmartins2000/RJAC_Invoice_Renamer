@@ -1,7 +1,8 @@
 // New interface: Preact + htm (no build step), talking to Python through pywebview's js_api.
 import { render } from "./vendor/preact.mjs";
 import { useEffect, useState } from "./vendor/hooks.mjs";
-import { api, GlobalLayers, html, toast, usePy, ask } from "./ui.js";
+import { api, GlobalLayers, html, toast, usePy, ask, t } from "./ui.js";
+import { setLang } from "./i18n.js";
 import { Done, Home, Welcome } from "./screens/home.js";
 import { Folder } from "./screens/folder.js";
 import { Review } from "./screens/review.js";
@@ -26,6 +27,7 @@ function App() {
 
   useEffect(() => {
     ask("app_info").then((i) => {
+      setLang(i.language);
       setInfo(i); setAppearanceState(i.appearance); applyTheme(i.appearance); setUpdate(i.update);
       document.documentElement.dataset.platform = i.platform;
       setRoute(i.has_key ? { name: "home" } : { name: "welcome" });
@@ -38,7 +40,7 @@ function App() {
     window.addEventListener("unhandledrejection", (e) => {
       api.log_ui(`unhandled: ${(e.reason && (e.reason.stack || e.reason.message)) || e.reason}`).catch(() => {});
       const msg = String((e.reason && (e.reason.message || e.reason)) || "unknown error").trim().split("\n").pop() || "unknown error";
-      toast(`Something went wrong: ${msg}. Please send feedback (speech bubble, top right).`, "warn");
+      toast(t("Something went wrong: {msg}. Please send feedback (speech bubble, top right).", { msg }), "warn");
     });
     const open = () => setFeedback(true);
     window.addEventListener("open-feedback", open);

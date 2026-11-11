@@ -23,6 +23,16 @@ from openpyxl.formula.translate import Translator
 from openpyxl.utils import get_column_letter
 
 from src.services import efatura, history
+from src.services.i18n import lang, tr
+
+
+def _money(v):
+    s = f"{v:,.2f}"
+    return s.replace(",", "X").replace(".", ",").replace("X", ".") if lang() == "pt" else s
+
+
+def _count(n):
+    return f"{n:,}".replace(",", ".") if lang() == "pt" else f"{n:,}"
 
 YEAR = re.compile(r"^(19|20)\d\d$")
 
@@ -166,7 +176,7 @@ def read(path, overrides=None, saved=None, skip=(), progress=None):
     saved: {signature: layout} remembered for this client; skip: sheets to leave out."""
     overrides, saved = overrides or {}, saved or {}
     say = progress or (lambda *a, **k: None)
-    say("Opening the workbook…", 0.02)
+    say(tr("Opening the workbook…"), 0.02)
     wb_v = _open(path, data_only=True)  # cached values (what Excel last calculated)
     wb_f = _open(path)                  # formulas (to find his SUBTOTAL ranges)
     codes, client_name, client_nif = _codes_from(wb_v)
@@ -174,7 +184,7 @@ def read(path, overrides=None, saved=None, skip=(), progress=None):
     sheets = []
     n_sheets = len(wb_v.worksheets)
     for idx, ws in enumerate(wb_v.worksheets):
-        say(f"Reading sheet {ws.title} ({idx + 1} of {n_sheets})…", 0.05 + 0.75 * idx / max(n_sheets, 1))
+        say(tr("Reading sheet {s} ({i} of {n})…", s=ws.title, i=idx + 1, n=n_sheets), 0.05 + 0.75 * idx / max(n_sheets, 1))
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
         if ws.title in skip:
             continue
@@ -242,33 +252,33 @@ def report(info):
         n = len(s["documents"])
         coded = sum(1 for d in s["documents"] if d["code"])
         notes = []
+        names = {"total": "Total", "vat": "IVA", "base": "Base"}
         for c in s["checks"]:
-            label = {"total": "Total", "vat": "IVA", "base": "Base"}[c["field"]]
-            if c["ok"]:
-                notes.append(f"{label}: read correctly (his SUBTOTAL {c['his']:,.2f} agrees); "
-                             f"all {n} documents add up to {c['ours']:,.2f}")
-            else:
-                notes.append(f"{label}: his SUBTOTAL says {c['his']:,.2f} but the cells add up to {c['excel']:,.2f}. Check this sheet")
+            if not c["ok"]:
+                notes.append(tr("{col}: his SUBTOTAL says {his} but the cells add up to {cells}. Check this sheet",
+                                col=names[c["field"]], his=_money(c["his"]), cells=_money(c["excel"])))
         first_check = s["checks"][0] if s["checks"] else None
         if first_check:
             if any(c["text"] for c in s["checks"]):
-                parts = ", ".join(f"{c['text']} in {dict(total='Total', vat='IVA', base='Base')[c['field']]} "
-                                  f"({c['text_sum']:,.2f})" for c in s["checks"] if c["text"])
-                notes.append(f"amounts typed as text (e.g. '1.200,00 €'), which Excel leaves out of his SUBTOTAL: "
-                             f"{parts}. The app reads them")
+                parts = ", ".join(tr("{n} in {col} ({sum})", n=c["text"], col=names[c["field"]], sum=_money(c["text_sum"]))
+                                  for c in s["checks"] if c["text"])
+                notes.append(tr("amounts typed as text (e.g. '1.200,00 €'), which Excel leaves out of his SUBTOTAL: "
+                                "{parts}. The app reads them", parts=parts))
             if first_check["hidden"]:
-                notes.append(f"a filter was on when the file was saved ({first_check['hidden']} rows hidden), "
-                             "so his SUBTOTAL only counts the visible rows")
+                notes.append(tr("a filter was on when the file was saved ({n} rows hidden), so his SUBTOTAL only "
+                                "counts the visible rows", n=first_check["hidden"]))
             if first_check["outside"]:
-                notes.append(f"{first_check['outside']} documents are below his SUBTOTAL range ({first_check['range']})")
+                notes.append(tr("{n} documents are below his SUBTOTAL range ({range})", n=first_check["outside"],
+                                range=first_check["range"]))
         if s["skipped_rows"]:
-            notes.append(f"rows without a total, not imported: {', '.join(map(str, s['skipped_rows'][:10]))}"
-                         + ("…" if len(s["skipped_rows"]) > 10 else ""))
+            notes.append(tr("rows without a total, not imported: {rows}",
+                            rows=", ".join(map(str, s["skipped_rows"][:10])) + ("…" if len(s["skipped_rows"]) > 10 else "")))
         if s["unknown_codes"]:
-            notes.append("codes not in the list: " + ", ".join(f"row {r} '{v}'" for r, v in s["unknown_codes"][:5]))
+            notes.append(tr("codes not in the list: {codes}",
+                            codes=", ".join(tr("row {r} '{v}'", r=r, v=v) for r, v in s["unknown_codes"][:5])))
         if not s["checks"] and s.get("uncalculated"):
-            notes.append("totals not checked: the file has no calculated totals to compare with "
-                         "(open it in Excel and save it once, then import again to check)")
+            notes.append(tr("totals not checked: the file has no calculated totals to compare with "
+                            "(open it in Excel and save it once, then import again to check)"))
         ok = all(c["ok"] for c in s["checks"]) and not s["unknown_codes"]
         out.append({"sheet": s["sheet"], "year": s["year"], "documents": n, "coded": coded,
                     "ok": ok, "checked": bool(s["checks"]), "notes": notes})
@@ -333,14 +343,14 @@ def import_workbook(project, path, data=None, progress=None):
     say = progress or (lambda *a, **k: None)
     data = data or read(path, progress=progress)
     if not data["sheets"]:
-        raise ValueError("No sheet in this workbook looks like a list of e-Fatura documents.")
+        raise ValueError(tr("No sheet in this workbook looks like a list of e-Fatura documents."))
     docs = [d for s in data["sheets"] for d in s["documents"]]
-    say(f"Saving {len(docs):,} documents in the client…", 0.85)
+    say(tr("Saving {n} documents in the client…", n=_count(len(docs))), 0.85)
     new = efatura.store_rows(project, [d["doc"] for d in docs])
     coded = [(efatura.row_key(d["doc"]), d["code"]) for d in docs if d["code"]]
-    say(f"Saving {len(coded):,} codes…", 0.9)
+    say(tr("Saving {n} codes…", n=_count(len(coded))), 0.9)
     efatura.set_codes(project, coded)
-    say("Keeping a copy of the workbook…", 0.95)
+    say(tr("Keeping a copy of the workbook…"), 0.95)
     # keep a copy: it's the template the export writes into (and goes along with feedback)
     folder = efatura.exports_dir(project)
     os.makedirs(folder, exist_ok=True)
@@ -452,7 +462,7 @@ def export_workbook(project, out_path):
     """Writes the client's documents and codes into a copy of his workbook. Returns a summary."""
     w = info(project)
     if not w or not os.path.exists(w["copy"]):
-        raise ValueError("This client has no workbook imported.")
+        raise ValueError(tr("This client has no workbook imported."))
     data = read(w["copy"], saved=saved_layouts(project))
     wb = _open(w["copy"], cache=False)  # this one gets changed
     app_codes = efatura.codes(project)

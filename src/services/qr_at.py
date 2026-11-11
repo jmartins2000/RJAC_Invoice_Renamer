@@ -111,7 +111,8 @@ def apply(values, field_defs, qr):
         if not same:
             f = enabled[key]
             if old not in (None, ""):
-                corrected.append(f"{f.label} {fieldmod.display_value(f, old)} → {fieldmod.display_value(f, new)}")
+                from src.services.i18n import tr
+                corrected.append(f"{tr(f.label)} {fieldmod.display_value(f, old)} → {fieldmod.display_value(f, new)}")
             values[key] = new
     return corrected
 

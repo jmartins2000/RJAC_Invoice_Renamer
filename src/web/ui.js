@@ -2,6 +2,9 @@
 import { h } from "./vendor/preact.mjs";
 import { useEffect, useRef, useState } from "./vendor/hooks.mjs";
 import htm from "./vendor/htm.mjs";
+import { getLang, t } from "./i18n.js";
+
+export { t };
 
 export const html = htm.bind(h);
 
@@ -82,24 +85,32 @@ export function StatusDot({ state }) {
 }
 
 // ---------- Formatting ----------
-export const money = (v) => (v === null || v === undefined || v === "") ? "" :
-  Number(v).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** 1.234,56 in Portuguese (as accountants write it), 1,234.56 in English. */
+export const money = (v) => {
+  if (v === null || v === undefined || v === "" || isNaN(Number(v))) return v ?? "";
+  const en = Number(v).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return getLang() === "pt" ? en.replace(/,/g, "X").replace(/\./g, ",").replace(/X/g, ".") : en;
+};
 export const plain2 = (v) => (v === null || v === undefined || v === "" || isNaN(Number(v))) ? (v ?? "") : Number(v).toFixed(2);
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 export const niceDate = (iso, alwaysYear = false) => {
   if (!iso) return "";
   const d = new Date(String(iso).slice(0, 10) + "T00:00:00");
   if (isNaN(d)) return iso;
-  const s = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  const s = `${d.getDate()} ${(getLang() === "pt" ? MONTHS_PT : MONTHS_EN)[d.getMonth()]}`;
   return !alwaysYear && d.getFullYear() === new Date().getFullYear() ? s : `${s} ${d.getFullYear()}`;
 };
-export const plural = (n, word, many) => `${n} ${n === 1 ? word : (many || word + "s")}`;
+/** tn(3, "{n} file renamed", "{n} files renamed") → "3 ficheiros renomeados" (one/many sentence, translated). */
+export const tn = (n, one, many, vars = {}) =>
+  t(n === 1 ? one : many, { ...vars, n: Number(n).toLocaleString(getLang() === "pt" ? "pt-PT" : "en") });
+export const plural = (n, word, many) => `${Number(n).toLocaleString(getLang() === "pt" ? "pt-PT" : "en")} ${t(n === 1 ? word : (many || word + "s"))}`;
 
 // ---------- Top bar ----------
 export function TopBar({ onBack, title, sub, children, progress }) {
   return html`
     <div class="topbar">
-      ${onBack && html`<button class="btn icon" title="Back" onClick=${onBack}><${Icon} name="back" /></button>`}
+      ${onBack && html`<button class="btn icon" title=${t("Back")} onClick=${onBack}><${Icon} name="back" /></button>`}
       <div class="bar-title">
         <b>${title}</b>
         ${progress != null && html`<div class="progress-row"><div class="bar"><div style=${{ width: `${Math.round(progress * 100)}%` }}></div></div><small>${sub}</small></div>`}
@@ -110,7 +121,7 @@ export function TopBar({ onBack, title, sub, children, progress }) {
 }
 
 export const FeedbackButton = () =>
-  html`<button class="btn icon" title="Send feedback" onClick=${() => window.dispatchEvent(new Event("open-feedback"))}><${Icon} name="chat" /></button>`;
+  html`<button class="btn icon" title=${t("Send feedback")} onClick=${() => window.dispatchEvent(new Event("open-feedback"))}><${Icon} name="chat" /></button>`;
 
 // ---------- Dialogs ----------
 export function Modal({ children, onClose, width = 480 }) {
@@ -149,8 +160,8 @@ export function GlobalLayers() {
       <h2>${c.title}</h2>
       ${c.text && html`<p class="muted pre">${c.text}</p>`}
       <div class="actions">
-        ${c.cancel !== false && html`<button class="btn" onClick=${() => close(false)}>${c.cancel || "Cancel"}</button>`}
-        <button class=${"btn solid" + (c.danger ? " danger" : "")} onClick=${() => close(true)} autofocus>${c.ok || "OK"}</button>
+        ${c.cancel !== false && html`<button class="btn" onClick=${() => close(false)}>${c.cancel || t("Cancel")}</button>`}
+        <button class=${"btn solid" + (c.danger ? " danger" : "")} onClick=${() => close(true)} autofocus>${c.ok || t("OK")}</button>
       </div>
     <//>`}
     ${t && html`<div key=${t.id} class=${"toast " + t.kind}>${t.text}</div>`}`;

@@ -16,6 +16,7 @@ import re
 import unicodedata
 
 from src.services import history
+from src.services.i18n import tr
 
 ATCUD = re.compile(r"^[A-Z0-9]{8,}-\d+$", re.I)
 
@@ -133,10 +134,10 @@ def parse(path):
     # The header is the first row with several recognisable column names (exports may start with a title)
     head_i = next((i for i, r in enumerate(rows[:15]) if len(_map_columns(r)) >= 4), None)
     if head_i is None:
-        raise ValueError("This doesn't look like an e-Fatura export (no recognisable columns).")
+        raise ValueError(tr("This doesn't look like an e-Fatura export (no recognisable columns)."))
     cols = _map_columns(rows[head_i])
     if "total" not in cols or not ({"supplier_nif", "supplier"} & set(cols)):
-        raise ValueError("The e-Fatura export is missing the supplier or total columns.")
+        raise ValueError(tr("The e-Fatura export is missing the supplier or total columns."))
     return rows_from_table(rows[head_i + 1:], cols)
 
 
@@ -351,9 +352,9 @@ def _same_amount(a, b):
 def _differences(values, row):
     out = []
     if values.get("date") and row["date"] and str(values["date"])[:10] != row["date"]:
-        out.append(f"date {str(values['date'])[:10]} vs e-Fatura {row['date']}")
+        out.append(tr("date {a} vs e-Fatura {b}", a=str(values['date'])[:10], b=row['date']))
     if values.get("total_value") not in (None, "") and not _same_amount(values.get("total_value"), row["total"]):
-        out.append(f"total {values.get('total_value')} vs e-Fatura {row['total']:.2f}")
+        out.append(tr("total {a} vs e-Fatura {b}", a=values.get('total_value'), b=f"{row['total']:.2f}"))
     return out
 
 

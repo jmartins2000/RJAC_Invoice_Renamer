@@ -11,7 +11,8 @@ FILE_COLUMNS = [("original_name", "Original name"), ("file_name", "File name"), 
 def chosen_file_columns():
     from src.services import settings
     on = settings.load().get("excel_columns") or {}
-    return [(label, key) for key, label in FILE_COLUMNS if on.get(key)]
+    from src.services.i18n import tr
+    return [(tr(label), key) for key, label in FILE_COLUMNS if on.get(key)]
 
 
 class ExcelExporter:
@@ -25,7 +26,8 @@ class ExcelExporter:
             wb = Workbook()
             ws = wb.active
             ws.title = "Invoices"
-            ws.append([f.label for f in cols] + [name for name, _ in extra_columns])
+            from src.services.i18n import tr
+            ws.append([tr(f.label) for f in cols] + [name for name, _ in extra_columns])
             for cell in ws[1]:
                 cell.fill = PatternFill(start_color="204E27", end_color="204E27", fill_type="solid")
                 cell.font = Font(bold=True, color="FFFFFF")

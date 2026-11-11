@@ -211,7 +211,8 @@ def move_project(old, new):
     with _lock:
         db = _db()
         if db.execute("SELECT 1 FROM projects WHERE path=? AND COALESCE(hidden,0)=0", (new,)).fetchone():
-            raise ValueError("That folder is already another client in the app.")
+            from src.services.i18n import tr
+            raise ValueError(tr("That folder is already another client in the app."))
         db.execute("DELETE FROM projects WHERE path=?", (new,))  # a hidden leftover
         db.execute("UPDATE projects SET path=? WHERE path=?", (new, old))
         db.execute("UPDATE projects SET dest_folder=NULL WHERE path=? AND dest_folder=?", (new, old))

@@ -7,6 +7,8 @@ already known for that NIF), or Gemini. Everything is saved to the history as it
 leaving never loses work. Worker threads call `on_change(path)` after each update.
 """
 import os
+
+from src.services.i18n import tr
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -165,31 +167,33 @@ class ReviewSession:
     def notice(self, path):
         """(kind, text, can_retry) shown above the fields, or None. kind: error | warning | info."""
         if path in self.errors and path not in self.values:
-            return ("error", f"Couldn't read this invoice: {self.errors[path]} Try again, or type the values yourself.", True)
+            return ("error", tr("Couldn't read this invoice: {e} Try again, or type the values yourself.", e=self.errors[path]), True)
         if path in self.duplicate_of:
-            return ("warning", f"Duplicate: this is the same file as {self.duplicate_of[path]}. "
-                               "It won't be renamed or counted twice.", False)
+            return ("warning", tr("Duplicate: this is the same file as {f}. It won't be renamed or counted twice.",
+                                  f=self.duplicate_of[path]), False)
         if path in self.copy_elsewhere:
             where = self.copy_elsewhere[path]
-            return ("info", f"Already renamed: the renamed copy is in \"{os.path.basename(os.path.dirname(where))}\" "
-                            f"as {os.path.basename(where)}. This original won't be renamed again.", False)
+            return ("info", tr("Already renamed: the renamed copy is in \"{folder}\" as {name}. This original won't be "
+                               "renamed again.", folder=os.path.basename(os.path.dirname(where)),
+                               name=os.path.basename(where)), False)
         if self.warnings.get(path):
-            return ("warning", self.warnings[path], True)
+            return ("warning", tr(self.warnings[path]), True)
         if self.source.get(path) == "qr":
-            return ("info", "Read from the invoice's official QR code (no AI needed, no cost). "
-                            "Supplier name from earlier invoices with the same NIF.", True)
+            return ("info", tr("Read from the invoice's official QR code (no AI needed, no cost). "
+                               "Supplier name from earlier invoices with the same NIF."), True)
         if self.qr.get(path):
-            return ("info", "Corrected using the invoice's official QR code: " + "; ".join(self.qr[path]) + ".", False)
+            return ("info", tr("Corrected using the invoice's official QR code:") + " " + "; ".join(self.qr[path]) + ".", False)
         if path in self.qr:
-            return ("info", "✓ Checked against the invoice's official QR code.", False)
+            return ("info", tr("✓ Checked against the invoice's official QR code."), False)
         v = self.values.get(path, {})
         if path in self.values and (not v.get("date") or v.get("total_value") in (None, "")):
-            return ("warning", "Some values couldn't be found. Please fill them in, or read it again.", True)
+            return ("warning", tr("Some values couldn't be found. Please fill them in, or read it again."), True)
         if self.source.get(path) == "history":
-            when = "renamed" if self.status.get(path) == "renamed" else "read"
-            return ("info", f"Already {when} before: values come from the history (no new Gemini cost).", True)
+            if self.status.get(path) == "renamed":
+                return ("info", tr("Already renamed before: values come from the history (no new Gemini cost)."), True)
+            return ("info", tr("Already read before: values come from the history (no new Gemini cost)."), True)
         if self.source.get(path) == "filename":
-            return ("info", "Values taken from the filename (no Gemini cost).", True)
+            return ("info", tr("Values taken from the filename (no Gemini cost)."), True)
         return None
 
     def filename_for(self, values, original):

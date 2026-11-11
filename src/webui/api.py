@@ -19,7 +19,7 @@ import threading
 import webview
 
 from src.services import api_key as key_store
-from src.services import efatura, history, models, periods, qr_at, settings, updater, workbook
+from src.services import efatura, history, i18n, models, periods, qr_at, settings, updater, workbook
 from src.services import fields as fieldmod
 from src.services.excel_exporter import FILE_COLUMNS, ExcelExporter
 from src.services.gemini_service import friendly_error as gemini_friendly
@@ -103,7 +103,7 @@ class Api:
     # ================================================================== app
     def app_info(self):
         prefs = settings.load()
-        return {"version": __version__, "has_key": bool(key_store.get_api_key()),
+        return {"version": __version__, "has_key": bool(key_store.get_api_key()), "language": i18n.lang(),
                 "appearance": prefs.get("appearance") or "system", "platform": sys.platform,
                 "update": self._update_dict()}
 
@@ -117,6 +117,10 @@ class Api:
                     self._update = info
                     self._emit("update", self._update_dict())
             threading.Thread(target=check, daemon=True).start()
+
+    def set_language(self, lang):
+        settings.save(language=lang if lang in i18n.LANGUAGES else "pt")
+        return True
 
     def set_appearance(self, mode):
         settings.save(appearance=mode)
@@ -156,14 +160,14 @@ class Api:
         from src.services.gemini_service import validate_api_key
         key = (key or "").strip()
         if not key:
-            return "Paste your key in the box above."
+            return i18n.tr("Paste your key in the box above.")
         err = validate_api_key(key)
         if err:
-            return f"That key didn't work: {err}"
+            return i18n.tr("That key didn't work: {err}", err=err)
         try:
             key_store.save_api_key(key)
         except Exception as e:
-            return f"Couldn't save the key on this computer: {e}"
+            return i18n.tr("Couldn't save the key on this computer: {e}", e=e)
         return None
 
     # ================================================================== clients (folders)
@@ -209,12 +213,12 @@ class Api:
     def create_client(self, name, nif, folder, dest=None):
         """New client: name, optional NIF, the folder its receipts arrive in, where renamed copies go."""
         if not folder or not os.path.isdir(folder):
-            return {"error": "Choose the folder where this client's receipts are."}
+            return {"error": i18n.tr("Choose the folder where this client's receipts are.")}
         path = os.path.abspath(folder)
         existing = history.project(path)
         if existing:
-            return {"error": f"That folder is already the client "
-                             f"\"{existing.get('name') or os.path.basename(path)}\"."}
+            return {"error": i18n.tr("That folder is already the client \"{name}\".",
+                                     name=existing.get('name') or os.path.basename(path))}
         history.add_project(path)
         history.set_details(path, name, nif)
         if dest:
@@ -262,15 +266,15 @@ class Api:
             "folder_name": os.path.basename(path) or path, "custom_name": bool(project.get("name")),
             "nif": project.get("nif") or "", "where": nice_path(path, 4),
             "exists": os.path.isdir(path),
-            "periods": [{"label": p[0], "start": p[1][0], "end": p[1][1], "short": p[2]}
+            "periods": [{"label": p[0], "start": p[1][0], "end": p[1][1], "short": p[2], "kind": p[3]}
                         for p in periods.options(history.years(path))],
-            "custom": periods.CUSTOM,
-            "columns": [{"key": f.key, "label": f.label, "type": f.type} for f in fields if f.in_excel][:5],
+            "custom": periods.custom_label(),
+            "columns": [{"key": f.key, "label": i18n.tr(f.label), "type": f.type} for f in fields if f.in_excel][:5],
             "runs": [{"date": (r["started_at"] or "")[:10], "reads": r["gemini_reads"] or 0,
                       "eur": round((r["cost_usd"] or 0) * self._eur, 2), "renamed": r["renamed"] or 0}
                      for r in runs],
             "example": _filename_example(fields, prefs.get("filename_original"), sep),
-            "dest": dest, "dest_label": dest or "This folder (renamed in place)",
+            "dest": dest, "dest_label": dest or i18n.tr("This folder (renamed in place)"),
             "efatura": efatura.stored_count(path),
         }
 
@@ -281,7 +285,7 @@ class Api:
         for r in rows:
             cells = {f.key: fieldmod.display_value(f, r["values"].get(f.key)) for f in fields}
             out.append({"cells": cells, "file": r["file_name"], "path": os.path.join(r["folder"] or "", r["file_name"] or ""),
-                        "status": r["status"], "status_label": STATUS.get(r["status"], r["status"]),
+                        "status": r["status"], "status_label": i18n.tr(STATUS.get(r["status"], r["status"])),
                         "sort": {k: r["values"].get(k) for k in cells}})
         total = sum(r["values"].get("total_value") or 0 for r in rows
                     if isinstance(r["values"].get("total_value"), (int, float)))
@@ -293,15 +297,16 @@ class Api:
             return None
         if a > b:
             a, b = b, a
-        return {"label": f"{periods.nice(a)} – {periods.nice(b)}", "start": a, "end": b, "short": f"{a} to {b}"}
+        return {"label": f"{periods.nice(a)} – {periods.nice(b)}", "start": a, "end": b,
+                "short": i18n.tr("{a} to {b}", a=a, b=b), "kind": "range"}
 
     def read_button(self, path):
         """Label for the folder's main button: read N new files (with an estimated cost) or review."""
         if not os.path.isdir(path):
-            return {"label": "Folder not found", "enabled": False, "new": 0}
+            return {"label": i18n.tr("Folder not found"), "enabled": False, "new": 0}
         n = len(history.new_pdfs(path))
         if not n:
-            return {"label": "Review & rename", "enabled": True, "new": 0}
+            return {"label": i18n.tr("Review & rename"), "enabled": True, "new": 0}
         mid = settings.load().get("model") or models.default_model()
         cost = history.recent_cost_per_read() or models.cost_per_invoice(mid)
         label = f"Read {n} new file{'s' if n != 1 else ''}"
@@ -316,7 +321,7 @@ class Api:
             return None
         history.set_destination(path, folder)
         dest = None if os.path.abspath(folder) == os.path.abspath(path) else folder
-        return {"dest": dest, "dest_label": dest or "This folder (renamed in place)"}
+        return {"dest": dest, "dest_label": dest or i18n.tr("This folder (renamed in place)")}
 
     def export_folder(self, path, start=None, end=None, short=""):
         rows = history.query(start, end, path)
@@ -455,19 +460,24 @@ class Api:
         on = [f.label for f in fieldmod.load() if f.enabled]
         masked = (f"{key[:4]}{'•' * 24}{key[-4:]}" if len(key) > 10 else "•" * len(key)) if key else ""
         return {"key": masked, "has_key": bool(key), "version": __version__,
-                "usage": f"This month: €{u['cost_usd'] * self._eur:.2f} · {u['invoices']} invoices",
-                "fields": f"Reading: {', '.join(on)} · separator \"{prefs.get('separator') or fieldmod.DEFAULT_SEPARATOR}\"",
+                "usage": i18n.tr("This month: €{cost} · {n} invoices", cost=i18n.money(u['cost_usd'] * self._eur), n=u['invoices']),
+                "fields": i18n.tr("Reading: {fields} · separator \"{sep}\"", fields=", ".join(i18n.tr(x) for x in on),
+                                  sep=prefs.get('separator') or fieldmod.DEFAULT_SEPARATOR),
                 "appearance": prefs.get("appearance") or "system"}
 
     def _model_dict(self, info):
-        per100 = f"€{info.cost * 100 * self._eur:.2f} per 100 invoices" if info.cost is not None else "price unknown"
-        bits = [f"Tested on sample invoices: {info.tested} fully correct" if info.tested else "Not tested yet"]
+        per100 = (i18n.tr("€{cost} per 100 invoices", cost=i18n.money(info.cost * 100 * self._eur))
+                  if info.cost is not None else i18n.tr("price unknown"))
+        bits = [i18n.tr("Tested on sample invoices: {score} fully correct", score=info.tested) if info.tested
+                else i18n.tr("Not tested yet")]
         if info.later:
             cost, when = info.later
-            bits.append(f"rises to €{cost * 100 * self._eur:.2f} per 100 on {when.day} {when.strftime('%b %Y')}")
+            bits.append(i18n.tr("rises to €{cost} per 100 on {date}", cost=i18n.money(cost * 100 * self._eur),
+                                date=periods.nice(when.isoformat())))
         if info.note:
-            bits.append(info.note)
-        return {"id": info.id, "label": info.label, "tag": info.tag or "", "price": per100, "detail": " · ".join(bits)}
+            bits.append(i18n.tr(info.note))
+        return {"id": info.id, "label": info.label, "tag": i18n.tr(info.tag) if info.tag else "", "price": per100,
+                "detail": " · ".join(bits)}
 
     def models_list(self):
         current = settings.load().get("model") or models.default_model()
@@ -515,7 +525,7 @@ class Api:
         """Installs a specific published version (older or newer). Same flow as an update."""
         info = getattr(self, "_releases", {}).get(version)
         if not info:
-            return {"error": "That version isn't available any more."}
+            return {"error": i18n.tr("That version isn't available any more.")}
         self._update = info
         return self.update_install()
 
@@ -523,19 +533,19 @@ class Api:
         """Downloads (progress events) and starts the installer. Returns what to tell the user."""
         info = self._update
         if not info:
-            return {"error": "No update found."}
+            return {"error": i18n.tr("No update found.")}
         if not info.asset_url:
             self.open_url(info.page_url)
-            return {"message": "The download page was opened in your browser."}
+            return {"message": i18n.tr("The download page was opened in your browser.")}
         try:
             path = updater.download(info, progress=lambda f: self._emit("update_progress", f))
         except Exception as e:
-            return {"error": f"Download failed: {e}"}
+            return {"error": i18n.tr("Download failed: {e}", e=e)}
         updater.launch_installer(path)
         if sys.platform == "win32":
             threading.Timer(0.8, self.quit).start()
-            return {"message": "Installing… the app will reopen by itself."}
-        return {"message": "Drag the new app into Applications (replace the old one), then reopen it."}
+            return {"message": i18n.tr("Installing… the app will reopen by itself.")}
+        return {"message": i18n.tr("Drag the new app into Applications (replace the old one), then reopen it.")}
 
     def quit(self):
         self.review_close()
@@ -549,12 +559,12 @@ class Api:
         sep = prefs.get("separator") or fieldmod.DEFAULT_SEPARATOR
         cols = prefs.get("excel_columns") or {}
         return {
-            "fields": [{"key": f.key, "label": f.label, "type": f.type, "type_label": TYPE_LABELS[f.type],
+            "fields": [{"key": f.key, "label": i18n.tr(f.label), "type": f.type, "type_label": i18n.tr(TYPE_LABELS[f.type]),
                         "instructions": f.instructions, "enabled": f.enabled, "in_filename": f.in_filename,
                         "in_excel": f.in_excel, "builtin": f.builtin} for f in fields],
             "separator": sep, "default_separator": fieldmod.DEFAULT_SEPARATOR,
             "original": bool(prefs.get("filename_original")),
-            "file_columns": [{"key": k, "label": label, "on": bool(cols.get(k))} for k, label in FILE_COLUMNS],
+            "file_columns": [{"key": k, "label": i18n.tr(label), "on": bool(cols.get(k))} for k, label in FILE_COLUMNS],
             "example": _filename_example(fields, prefs.get("filename_original"), sep),
         }
 
@@ -604,7 +614,7 @@ class Api:
     def field_save(self, key, label, type_, instructions):
         label, instructions = (label or "").strip(), (instructions or "").strip()
         if not label or not instructions:
-            return {"problem": "Please fill in the name and what should be read."}
+            return {"problem": i18n.tr("Please fill in the name and what should be read.")}
         fields = fieldmod.load()
         if key:
             f = next(x for x in fields if x.key == key)
@@ -638,7 +648,7 @@ class Api:
         from src.services import feedback
         message = (message or "").strip()
         if not message:
-            return {"error": "Please write a few words about it first."}
+            return {"error": i18n.tr("Please write a few words about it first.")}
         try:
             img = None
             if screenshot:
@@ -648,7 +658,7 @@ class Api:
                                                 folder if folder and os.path.isdir(folder) else None,
                                                 include_files=bool(include_files), screen_name=screen or "")
         except Exception as e:
-            return {"error": f"Couldn't prepare the feedback: {e}"}
+            return {"error": i18n.tr("Couldn't prepare the feedback: {e}", e=e)}
         try:
             self._emit("feedback_status", f"Sending {len(data) / 1e6:.1f} MB…")
             feedback.send(data, meta)
@@ -657,7 +667,7 @@ class Api:
             try:
                 return {"saved": feedback.save_to_desktop(data)}
             except Exception as e:
-                return {"error": f"Couldn't send or save it: {e}"}
+                return {"error": i18n.tr("Couldn't send or save it: {e}", e=e)}
 
     def choose_image(self):
         chosen = _first(self._window.create_file_dialog(
@@ -683,9 +693,8 @@ class Api:
             n, total = efatura.import_files(path, paths)
         except ValueError as e:
             return {"error": str(e)}
-        return {"message": f"Read {n} invoice{'s' if n != 1 else ''} from {len(paths)} file"
-                           f"{'s' if len(paths) != 1 else ''}. This client now has {total} e-Fatura invoices "
-                           "(duplicates are ignored)."}
+        return {"message": i18n.tr("Read {n} invoices from {f} file(s). This client now has {total} e-Fatura invoices "
+                                   "(duplicates are ignored).", n=n, f=len(paths), total=total)}
 
     def efatura_view(self, path, start=None, end=None):
         """Every case for the period, with its status, the receipt/e-Fatura values, what was decided and
@@ -761,11 +770,11 @@ class Api:
             return None
         self._wb_pending = chosen
         say = self._wb_say
-        say(f"Opening {os.path.basename(chosen)}…", 0.02, start=True)
+        say(i18n.tr("Opening {file}…", file=os.path.basename(chosen)), 0.02, start=True)
         try:
             sheets = workbook.preview(chosen, path)
         except Exception as e:  # damaged / not an Excel file
-            return {"error": f"Couldn't read that workbook: {e}"}
+            return {"error": i18n.tr("Couldn't read that workbook: {e}", e=e)}
         unknown = [s for s in sheets if s["looks_like_data"] and not s["layout"]]
         if not unknown and not again and any(s["layout"] for s in sheets):
             return {"imported": self._wb_import(path, chosen)}
@@ -774,7 +783,7 @@ class Api:
         if unknown and key:  # ask Gemini to work out the layout; shown as a suggestion to confirm
             try:
                 from src.services import layout_agent
-                say("Some sheets have a layout the app doesn't know: asking Gemini to work it out…", 0.08)
+                say(i18n.tr("Some sheets have a layout the app doesn't know: asking Gemini to work it out…"), 0.08)
                 res = layout_agent.propose(key, chosen, progress=say)
                 for sh in unknown:
                     if sh["sheet"] in res["layouts"]:
@@ -813,7 +822,7 @@ class Api:
         data = workbook.read(file, overrides=layouts or {}, saved=workbook.saved_layouts(path), skip=set(skip),
                              progress=say)
         r = workbook.import_workbook(path, file, data=data, progress=say)
-        say(f"Done: {r['documents']:,} documents.", 1.0)
+        say(i18n.tr("Done: {n} documents.", n=f"{r['documents']:,}".replace(",", ".") if i18n.lang() == "pt" else f"{r['documents']:,}"), 1.0)
         project = history.project(path) or {}
         r["offer_details"] = bool((r["client_name"] and not project.get("name"))
                                   or (r["client_nif"] and not project.get("nif")))
@@ -824,7 +833,7 @@ class Api:
         """The client's workbook with everything in the app written in (saved as a new file)."""
         w = workbook.info(path)
         if not w:
-            return {"error": "Import the client's workbook first."}
+            return {"error": i18n.tr("Import the client's workbook first.")}
         base, ext = os.path.splitext(w["name"])
         base = re.sub(r"\s*\(atualizado [^)]*\)$", "", base)
         name = f"{base} (atualizado {datetime.date.today().isoformat()}){ext}"
@@ -833,11 +842,11 @@ class Api:
         if not out:
             return None
         if os.path.abspath(out) == os.path.abspath(w["original"]):
-            return {"error": "Save it under a new name: the original workbook is never overwritten."}
+            return {"error": i18n.tr("Save it under a new name: the original workbook is never overwritten.")}
         try:
             return workbook.export_workbook(path, out)
         except Exception as e:
-            return {"error": f"Couldn't write the workbook: {e}"}
+            return {"error": i18n.tr("Couldn't write the workbook: {e}", e=e)}
 
     def efatura_set_code(self, path, item_id, code):
         item = self._ef_cache.get(path, {}).get(item_id)
@@ -858,11 +867,11 @@ class Api:
         from src.services.file_manager import FileManager
         item = self._ef_cache.get(path, {}).get(item_id)
         if not item or not item.get("receipt"):
-            return {"error": "This case changed; please reload."}
+            return {"error": i18n.tr("This case changed; please reload.")}
         h = item["receipt"]["hash"]
         known = history.get(h)
         if not known:
-            return {"error": "This receipt isn't in the history any more."}
+            return {"error": i18n.tr("This receipt isn't in the history any more.")}
         values = dict(known["values"])
         values["date"], values["total_value"] = item["ef"]["date"], float(item["ef"]["total"])
         current = os.path.join(known["folder"] or "", known["file_name"] or "")
@@ -888,7 +897,7 @@ class Api:
             return None
         key = key_store.get_api_key()
         if not key:
-            return {"error": "Add your Gemini API key in Settings first."}
+            return {"error": i18n.tr("Add your Gemini API key in Settings first.")}
         target = os.path.join(path, os.path.basename(chosen))
         if os.path.abspath(chosen) != os.path.abspath(target):
             base, ext = os.path.splitext(target)
@@ -982,7 +991,7 @@ class Api:
             for i in (x for x in view["items"] if x["kind"] == kind):
                 rc, ef = i["receipt"] or {}, i["ef"] or {}
                 decision = label_of.get(i["code"]) or {
-                    "not_needed": "Not needed", "kept": "Kept receipt values", "registered": "Registered"
+                    "not_needed": i18n.tr("Not needed"), "kept": i18n.tr("Keep receipt values"), "registered": i18n.tr("Registered")
                 }.get(i["resolution"] or "", "")
                 ws.append([ef.get("date") or rc.get("date"), ef.get("supplier") or rc.get("supplier"),
                            ef.get("nif") or rc.get("nif"), ef.get("number") or rc.get("number"),

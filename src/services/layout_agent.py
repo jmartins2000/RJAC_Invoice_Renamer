@@ -148,16 +148,18 @@ class _Session:
 
 def _describe(name, args):
     """What the agent is doing, in words for the progress window."""
+    from src.services.i18n import tr
     if name == "list_sheets":
-        return "Gemini is listing the sheets"
+        return tr("Gemini is listing the sheets")
     if name == "read_rows":
-        return f"Gemini is reading sheet {args.get('sheet')}, rows {args.get('first_row')}–{args.get('last_row')}"
+        return tr("Gemini is reading sheet {s}, rows {a}–{b}", s=args.get("sheet"), a=args.get("first_row"),
+                  b=args.get("last_row"))
     if name == "find_text":
-        return f"Gemini is searching for “{args.get('text')}”"
+        return tr("Gemini is searching for “{t}”", t=args.get("text"))
     if name == "try_layout":
-        return f"Gemini is trying a layout on sheet {args.get('sheet')}"
+        return tr("Gemini is trying a layout on sheet {s}", s=args.get("sheet"))
     if name == "submit":
-        return "Gemini has a proposal"
+        return tr("Gemini has a proposal")
     return f"Gemini: {name}"
 
 
@@ -178,7 +180,8 @@ def propose(api_key, path, model=None, progress=None):
     tokens_in = tokens_out = steps = 0
     notes = ""
     say = progress or (lambda *a, **k: None)
-    say("Gemini is looking at the workbook…", 0.1)
+    from src.services.i18n import tr
+    say(tr("Gemini is looking at the workbook…"), 0.1)
     while steps < MAX_STEPS and s.submitted is None:
         steps += 1
         resp = client.models.generate_content(model=model, contents=contents, config=config)

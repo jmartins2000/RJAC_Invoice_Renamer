@@ -1,6 +1,6 @@
 // One client's folder: invoices by period, runs, filename, destination, e-Fatura.
 import { useEffect, useState } from "../vendor/hooks.mjs";
-import { api, confirmBox, ctx, FeedbackButton, html, Menu, Modal, money, niceDate, plural, toast, TopBar } from "../ui.js";
+import { api, confirmBox, ctx, FeedbackButton, html, Menu, Modal, money, niceDate, plural, t, tn, toast, TopBar } from "../ui.js";
 
 /** Period dropdown shared with the e-Fatura screen. Handles "Custom dates…". */
 export function PeriodMenu({ periods, custom, value, onChange, withCustom = true }) {
@@ -27,14 +27,14 @@ function CustomDates({ onDone, onCancel }) {
   };
   const key = (e) => e.key === "Enter" && ok();
   return html`<${Modal} onClose=${onCancel} width=${440}>
-    <h2>Invoices dated between</h2>
+    <h2>${t("Invoices dated between")}</h2>
     <div class="date-row">
-      <input class="input" placeholder="From, e.g. 01/02/2026" value=${a} onInput=${(e) => setA(e.target.value)} onKeyDown=${key} autofocus />
+      <input class="input" placeholder=${t("From, e.g. 01/02/2026")} value=${a} onInput=${(e) => setA(e.target.value)} onKeyDown=${key} autofocus />
       <span class="muted">–</span>
-      <input class="input" placeholder="To, e.g. 30/04/2026" value=${b} onInput=${(e) => setB(e.target.value)} onKeyDown=${key} />
+      <input class="input" placeholder=${t("To, e.g. 30/04/2026")} value=${b} onInput=${(e) => setB(e.target.value)} onKeyDown=${key} />
     </div>
-    <p class=${err ? "error small" : "muted small"}>${err ? "Please write both dates, e.g. 01/02/2026." : "Both dates are included."}</p>
-    <div class="actions"><button class="btn" onClick=${onCancel}>Cancel</button><button class="btn solid" onClick=${ok}>Show</button></div>
+    <p class=${err ? "error small" : "muted small"}>${err ? t("Please write both dates, e.g. 01/02/2026.") : t("Both dates are included.")}</p>
+    <div class="actions"><button class="btn" onClick=${onCancel}>${t("Cancel")}</button><button class="btn solid" onClick=${ok}>${t("Show")}</button></div>
   <//>`;
 }
 
@@ -58,11 +58,11 @@ export function InvoiceTable({ columns, rows }) {
       <table class="table">
         <thead><tr>
           ${columns.map((c) => html`<th class=${c.type === "number" ? "num" : ""} onClick=${() => by(c.key)}>${c.label}${arrow(c.key)}</th>`)}
-          <th class="grow" onClick=${() => by("_file")}>File${arrow("_file")}</th>
-          <th onClick=${() => by("_status")}>Status${arrow("_status")}</th>
+          <th class="grow" onClick=${() => by("_file")}>${t("File")}${arrow("_file")}</th>
+          <th onClick=${() => by("_status")}>${t("Status")}${arrow("_status")}</th>
         </tr></thead>
         <tbody>
-          ${shown.map((r) => html`<tr onDblClick=${async () => { if (!(await api.open(r.path))) toast("This file is no longer there.", "warn"); }} title="Double-click to open">
+          ${shown.map((r) => html`<tr onDblClick=${async () => { if (!(await api.open(r.path))) toast(t("This file is no longer there."), "warn"); }} title=${t("Double-click to open")}>
             ${columns.map((c) => html`<td class=${c.type === "number" ? "num" : ""}>${r.cells[c.key]}</td>`)}
             <td class="grow ellipsis" title=${r.file}>${r.file}</td>
             <td class=${"status-" + r.status}>${r.status_label}</td>
@@ -79,17 +79,17 @@ function ClientDialog({ info, onClose, onSaved }) {
   const save = async () => { setBusy(true); onSaved(await api.rename_client(info.path, name, nif)); };
   const badNif = nif && nif.replace(/\D/g, "").length !== 9;
   return html`<${Modal} onClose=${onClose} width=${460}>
-    <h2>Client details</h2>
-    <label class="field-label">Name</label>
+    <h2>${t("Client details")}</h2>
+    <label class="field-label">${t("Name")}</label>
     <input class="input" value=${name} placeholder=${info.folder_name} autofocus
       onInput=${(e) => setName(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && !badNif && save()} />
-    <small class="muted">Shown in the app and used in Excel file names. Leave empty to use the folder's name (${info.folder_name}).</small>
-    <label class="field-label">NIF (optional)</label>
+    <small class="muted">${t("Shown in the app and used in Excel file names. Leave empty to use the folder's name ({name}).", { name: info.folder_name })}</small>
+    <label class="field-label">${t("NIF (optional)")}</label>
     <input class="input mono" value=${nif} placeholder="500000000" inputmode="numeric"
       onInput=${(e) => setNif(e.target.value)} onKeyDown=${(e) => e.key === "Enter" && !badNif && save()} />
-    ${badNif && html`<small class="warn">A NIF has 9 digits.</small>`}
-    <div class="actions"><button class="btn" onClick=${onClose}>Cancel</button>
-      <button class="btn solid" disabled=${busy || badNif} onClick=${save}>Save</button></div>
+    ${badNif && html`<small class="warn">${t("A NIF has 9 digits.")}</small>`}
+    <div class="actions"><button class="btn" onClick=${onClose}>${t("Cancel")}</button>
+      <button class="btn solid" disabled=${busy || badNif} onClick=${save}>${t("Save")}</button></div>
   <//>`;
 }
 
@@ -97,7 +97,7 @@ export function Folder({ path, go }) {
   const [info, setInfo] = useState(null);
   const [period, setPeriod] = useState(null);
   const [data, setData] = useState(null);
-  const [button, setButton] = useState({ label: "Checking for new files…", enabled: false });
+  const [button, setButton] = useState({ label: t("Checking for new files…"), enabled: false });
   const [exported, setExported] = useState(null);
   const [editing, setEditing] = useState(false);
 
@@ -118,63 +118,63 @@ export function Folder({ path, go }) {
     if (r) setInfo({ ...info, ...r });
   };
   const changeFolder = async () => {
-    if (!(await confirmBox({ title: "Change the receipts folder", ok: "Choose folder…",
-      text: "Use this when the client's receipts moved to another folder, or should come from another folder from now on.\n\nEverything the app knows about this client (invoices read, runs, e-Fatura data and codes) stays with the client. No files are moved." }))) return;
+    if (!(await confirmBox({ title: t("Change the receipts folder"), ok: t("Choose folder…"),
+      text: t("Use this when the client's receipts moved to another folder, or should come from another folder from now on.\n\nEverything the app knows about this client (invoices read, runs, e-Fatura data and codes) stays with the client. No files are moved.") }))) return;
     const r = await api.change_client_folder(path);
     if (!r) return;
-    if (r.error) toast(r.error, "warn"); else { toast("Receipts folder changed."); go("folder", r.path); }
+    if (r.error) toast(r.error, "warn"); else { toast(t("Receipts folder changed.")); go("folder", r.path); }
   };
   const remove = async () => {
-    if (await confirmBox({ title: `Delete ${info.name}?`, ok: "Delete client", danger: true,
-      text: `This removes the client from the app with everything the app keeps about it: invoices as read, runs, imported e-Fatura data and codes.\n\nThe files in the folder are NOT deleted or changed.\n\nIf you add the folder again, its invoices are read again (Gemini cost).` })) {
-      await api.delete_client(path); toast(`${info.name} deleted.`); go("home");
+    if (await confirmBox({ title: t("Delete {name}?", { name: info.name }), ok: t("Delete client"), danger: true,
+      text: t("This removes the client from the app with everything the app keeps about it: invoices as read, runs, imported e-Fatura data and codes.\n\nThe files in the folder are NOT deleted or changed.\n\nIf you add the folder again, its invoices are read again (Gemini cost).") })) {
+      await api.delete_client(path); toast(t("{name} deleted.", { name: info.name })); go("home");
     }
   };
   const rows = data ? data.rows : [];
   return html`
     <${TopBar} onBack=${() => go("home")} title=${info.name} sub=${info.nif ? `NIF ${info.nif}` : ""}>
       <${FeedbackButton} />
-      <button class="btn" disabled=${!rows.length} onClick=${exp}>${exported === true ? "✓ Exported" : exported === false ? "Export failed" : "Export to Excel"}</button>
+      <button class="btn" disabled=${!rows.length} onClick=${exp}>${exported === true ? t("✓ Exported") : exported === false ? t("Export failed") : t("Export to Excel")}</button>
       <button class="btn solid" disabled=${!button.enabled} onClick=${() => go("review", path)}>${button.label}</button>
     <//>
     <div class="folder-body">
       <div class="folder-main">
         <div class="table-head">
           <${PeriodMenu} periods=${info.periods} custom=${info.custom} value=${period} onChange=${setPeriod} />
-          <span class="muted">${data ? `${plural(rows.length, "invoice")} · total ${money(data.total)}` : ""}</span>
+          <span class="muted">${data ? `${tn(rows.length, "{n} invoice", "{n} invoices")} · ${t("total")} ${money(data.total)}` : ""}</span>
         </div>
-        ${data && rows.length === 0 ? html`<div class="table-empty">${period.start ? "No invoices dated in this period." : "No invoices read in this folder yet."}</div>`
+        ${data && rows.length === 0 ? html`<div class="table-empty">${period.start ? t("No invoices dated in this period.") : t("No invoices read in this folder yet.")}</div>`
           : html`<${InvoiceTable} columns=${info.columns} rows=${rows} />`}
-        <small class="muted hint">Double-click a row to open the file.</small>
+        <small class="muted hint">${t("Double-click a row to open the file.")}</small>
       </div>
       <aside class="side">
-        <div class="eyebrow">Client</div>
+        <div class="eyebrow">${t("Client")}</div>
         <p class="client-name"><b>${info.name}</b>${info.nif && html`<span class="muted"> · NIF ${info.nif}</span>`}</p>
-        <button class="link" onClick=${() => setEditing(true)}>Edit name and NIF</button>
+        <button class="link" onClick=${() => setEditing(true)}>${t("Edit name and NIF")}</button>
         <div class="divider"></div>
-        <div class="eyebrow">Receipts folder</div>
+        <div class="eyebrow">${t("Receipts folder")}</div>
         <p class="break">${info.where}</p>
-        <button class="link" onClick=${changeFolder}>Change</button>
+        <button class="link" onClick=${changeFolder}>${t("Change")}</button>
         <div class="divider"></div>
-        <div class="eyebrow">Runs</div>
-        ${info.runs.length === 0 && html`<p class="muted">None yet</p>`}
-        ${info.runs.slice(0, 6).map((r) => html`<div class="run"><span>${niceDate(r.date, true)}</span><span class="muted">${r.reads} read · €${r.eur.toFixed(2)}${r.renamed ? ` · ${r.renamed} renamed` : ""}</span></div>`)}
-        ${info.runs.length > 6 && html`<p class="muted small">+ ${info.runs.length - 6} earlier</p>`}
+        <div class="eyebrow">${t("Runs")}</div>
+        ${info.runs.length === 0 && html`<p class="muted">${t("None yet")}</p>`}
+        ${info.runs.slice(0, 6).map((r) => html`<div class="run"><span>${niceDate(r.date, true)}</span><span class="muted">${t("{n} read", { n: r.reads })} · €${r.eur.toFixed(2)}${r.renamed ? ` · ${t("{n} renamed", { n: r.renamed })}` : ""}</span></div>`)}
+        ${info.runs.length > 6 && html`<p class="muted small">${t("+ {n} earlier", { n: info.runs.length - 6 })}</p>`}
         <div class="divider"></div>
-        <div class="eyebrow">Filename & fields</div>
+        <div class="eyebrow">${t("Filename & fields")}</div>
         <p class="mono green">${info.example}</p>
-        <button class="link" onClick=${() => go("fields", { back: ["folder", path] })}>Customize</button>
+        <button class="link" onClick=${() => go("fields", { back: ["folder", path] })}>${t("Customize")}</button>
         <div class="divider"></div>
-        <div class="eyebrow">Renamed files go to</div>
+        <div class="eyebrow">${t("Renamed files go to")}</div>
         <p class="break">${info.dest_label}</p>
-        <button class="link" onClick=${changeDest}>Change</button>
+        <button class="link" onClick=${changeDest}>${t("Change")}</button>
         <div class="divider"></div>
         <div class="eyebrow">e-Fatura</div>
-        <p class="muted">${info.efatura ? `${info.efatura} invoices imported from the portal` : "Compare with the AT's list to find missing receipts."}</p>
-        <button class="link" onClick=${() => go("efatura", path)}>Compare with e-Fatura</button>
-        <button class="btn-quiet" onClick=${remove}>Delete client…</button>
+        <p class="muted">${info.efatura ? tn(info.efatura, "{n} invoice imported from the portal", "{n} invoices imported from the portal") : t("Compare with the AT's list to find missing receipts.")}</p>
+        <button class="link" onClick=${() => go("efatura", path)}>${t("Compare with e-Fatura")}</button>
+        <button class="btn-quiet" onClick=${remove}>${t("Delete client…")}</button>
       </aside>
     </div>
     ${editing && html`<${ClientDialog} info=${info} onClose=${() => setEditing(false)}
-      onSaved=${(f) => { setEditing(false); setInfo({ ...info, ...f }); toast("Saved."); }} />`}`;
+      onSaved=${(f) => { setEditing(false); setInfo({ ...info, ...f }); toast(t("Saved.")); }} />`}`;
 }

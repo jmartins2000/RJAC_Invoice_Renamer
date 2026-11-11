@@ -27,6 +27,8 @@ import pymupdf  # noqa: E402
 from PIL import Image as _Img, ImageDraw as _Draw  # noqa: E402
 
 from src.services import history  # noqa: E402
+from src.services import settings as _settings  # noqa: E402
+_settings.save(language="en")  # the test clicks buttons by their English text (Portuguese is checked headless)
 
 # ------------------------------------------------------------------ fake client folder
 inv = os.path.join(work, "Faturas Outubro")

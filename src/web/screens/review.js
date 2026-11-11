@@ -1,6 +1,6 @@
 // Review: file list · preview (zoom, QR outline) · fields. Values come from history, filename, QR or Gemini.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
-import { api, ctx, FeedbackButton, html, Icon, Modal, plural, StatusDot, Toggle, TopBar, usePy, Spinner } from "../ui.js";
+import { api, ctx, FeedbackButton, html, Icon, Modal, plural, StatusDot, t, tn, Toggle, TopBar, usePy, Spinner } from "../ui.js";
 
 export function Preview({ pages, qr, loading, compact = false }) {
   const [zoom, setZoom] = useState(1);
@@ -15,17 +15,17 @@ export function Preview({ pages, qr, loading, compact = false }) {
   }, [compact]);
   return html`
     <div class="preview" ref=${box}>
-      ${loading ? html`<div class="preview-msg">Loading preview…</div>` : !pages || !pages.length ? html`<div class="preview-msg">No preview for this file.</div>` : html`
+      ${loading ? html`<div class="preview-msg">${t("Loading preview…")}</div>` : !pages || !pages.length ? html`<div class="preview-msg">${t("No preview for this file.")}</div>` : html`
         <div class="pages" style=${{ width: compact ? "100%" : `calc(min(100% - 48px, 720px) * ${zoom})` }}>
           ${pages.map((p, i) => html`<div class="page-img">
             <img src=${p.src} draggable="false" />
-            ${qr && qr.page === i && html`<div class="qr-box" title="Official AT QR code" style=${{ left: `${qr.box[0] * 100}%`, top: `${qr.box[1] * 100}%`, width: `${(qr.box[2] - qr.box[0]) * 100}%`, height: `${(qr.box[3] - qr.box[1]) * 100}%` }}></div>`}
+            ${qr && qr.page === i && html`<div class="qr-box" title=${t("Official AT QR code")} style=${{ left: `${qr.box[0] * 100}%`, top: `${qr.box[1] * 100}%`, width: `${(qr.box[2] - qr.box[0]) * 100}%`, height: `${(qr.box[3] - qr.box[1]) * 100}%` }}></div>`}
           </div>`)}
         </div>`}
       ${!compact && pages && pages.length > 0 && html`<div class="zoom">
-        <button title="Zoom out" onClick=${() => setZoom((z) => Math.max(0.5, z / 1.25))}><${Icon} name="minus" size=${14} /></button>
-        <button class="zoom-pct" title="Fit" onClick=${() => setZoom(1)}>${Math.round(zoom * 100)}%</button>
-        <button title="Zoom in" onClick=${() => setZoom((z) => Math.min(4, z * 1.25))}><${Icon} name="plus" size=${14} /></button>
+        <button title=${t("Zoom out")} onClick=${() => setZoom((z) => Math.max(0.5, z / 1.25))}><${Icon} name="minus" size=${14} /></button>
+        <button class="zoom-pct" title=${t("Fit")} onClick=${() => setZoom(1)}>${Math.round(zoom * 100)}%</button>
+        <button title=${t("Zoom in")} onClick=${() => setZoom((z) => Math.min(4, z * 1.25))}><${Icon} name="plus" size=${14} /></button>
       </div>`}
     </div>`;
 }
@@ -35,17 +35,17 @@ function RenameDialog({ info, onCancel, onGo }) {
   const [del, setDel] = useState(info.delete);
   const [busy, setBusy] = useState(false);
   const notes = [];
-  if (info.done) notes.push(`${info.done} already renamed or duplicates (left as they are)`);
-  if (info.skipped) notes.push(`${info.skipped} without values (skipped, left untouched)`);
+  if (info.done) notes.push(t("{n} already renamed or duplicates (left as they are)", { n: info.done }));
+  if (info.skipped) notes.push(t("{n} without values (skipped, left untouched)", { n: info.skipped }));
   return html`<${Modal} onClose=${busy ? null : onCancel} width=${520}>
-    <h2>Rename ${plural(info.todo, "file")}</h2>
+    <h2>${tn(info.todo, "Rename {n} file", "Rename {n} files")}</h2>
     ${notes.length > 0 && html`<p class="muted small">${notes.join(" · ")}</p>`}
-    <div class="eyebrow mt">Save to</div>
-    <div class="dest-box"><span class="ellipsis">${dest}</span><button class="link" onClick=${async () => { const d = await api.review_choose_dest(dest); if (d) setDest(d); }}>Change</button></div>
+    <div class="eyebrow mt">${t("Save to")}</div>
+    <div class="dest-box"><span class="ellipsis">${dest}</span><button class="link" onClick=${async () => { const d = await api.review_choose_dest(dest); if (d) setDest(d); }}>${t("Change")}</button></div>
     <div class="toggle-row"><${Toggle} on=${del} onChange=${setDel} />
-      <div><b>Delete the originals</b><small class="muted">Only after each renamed copy is saved</small></div></div>
-    <div class="actions"><button class="btn" disabled=${busy} onClick=${onCancel}>Cancel</button>
-      <button class="btn solid" disabled=${busy} onClick=${() => { setBusy(true); onGo(dest, del); }}>${busy ? "Renaming…" : "Rename"}</button></div>
+      <div><b>${t("Delete the originals")}</b><small class="muted">${t("Only after each renamed copy is saved")}</small></div></div>
+    <div class="actions"><button class="btn" disabled=${busy} onClick=${onCancel}>${t("Cancel")}</button>
+      <button class="btn solid" disabled=${busy} onClick=${() => { setBusy(true); onGo(dest, del); }}>${busy ? t("Renaming…") : t("Rename")}</button></div>
   <//>`;
 }
 
@@ -136,12 +136,12 @@ export function Review({ path, go, onDone }) {
     return () => window.removeEventListener("keydown", key);
   });
 
-  if (!session) return html`<${TopBar} onBack=${() => go("folder", path)} title="Starting…" />`;
+  if (!session) return html`<${TopBar} onBack=${() => go("folder", path)} title=${t("Starting…")} />`;
   const n = files.length;
   const reading = files.filter((f) => f.state === "reading").length;
   const attention = files.filter((f) => f.state === "warning" || f.state === "error").length;
-  let sub = reading ? `${n - reading} of ${n} read` : `All ${n} read`;
-  if (attention) sub += ` · ${attention} need${attention === 1 ? "s" : ""} attention`;
+  let sub = reading ? t("{a} of {n} read", { a: n - reading, n }) : t("All {n} read", { n });
+  if (attention) sub += " · " + tn(attention, "{n} needs attention", "{n} need attention");
   const todo = summary ? summary.todo : 0;
   const file = files[cur];
   const last = cur === n - 1;
@@ -149,13 +149,13 @@ export function Review({ path, go, onDone }) {
   return html`
     <${TopBar} onBack=${back} title=${session.name} sub=${sub} progress=${n ? (n - reading) / n : 1}>
       <${FeedbackButton} />
-      <button class="btn" onClick=${exp}>${exported === true ? "✓ Exported" : exported === false ? "Export failed" : "Export to Excel"}</button>
-      <button class="btn solid" disabled=${!todo || reading > 0} onClick=${openRename}>${todo ? `Rename ${plural(todo, "file")}` : "Nothing to rename"}</button>
+      <button class="btn" onClick=${exp}>${exported === true ? t("✓ Exported") : exported === false ? t("Export failed") : t("Export to Excel")}</button>
+      <button class="btn solid" disabled=${!todo || reading > 0} onClick=${openRename}>${todo ? tn(todo, "Rename {n} file", "Rename {n} files") : t("Nothing to rename")}</button>
     <//>
-    ${n === 0 ? html`<div class="center-page"><div class="center-col"><h1>No invoices here</h1><p class="lead">This folder has no PDFs or photos of invoices.</p></div></div>` : html`
+    ${n === 0 ? html`<div class="center-page"><div class="center-col"><h1>${t("No invoices here")}</h1><p class="lead">${t("This folder has no PDFs or photos of invoices.")}</p></div></div>` : html`
     <div class="review">
       <div class="files">
-        <div class="eyebrow pad">Invoices</div>
+        <div class="eyebrow pad">${t("Invoices")}</div>
         <div class="file-list">
           ${files.map((f, i) => html`<div class=${"file-row" + (i === cur ? " on" : "") + (f.state === "reading" ? " dim" : "")} onClick=${() => goto(i)}>
             <${StatusDot} state=${f.state} /><span class="ellipsis">${f.name}</span></div>`)}
@@ -163,26 +163,26 @@ export function Review({ path, go, onDone }) {
       </div>
       <${Preview} pages=${preview && preview.pages} qr=${preview && preview.qr} loading=${!preview} />
       <div class="panel">
-        <small class="muted">Invoice ${cur + 1} of ${n}</small>
+        <small class="muted">${t("Invoice {a} of {n}", { a: cur + 1, n })}</small>
         <h3 class="file-title">${file.name}</h3>
         <div class="panel-scroll">
-          ${!detail || detail.state === "reading" ? html`<div class="reading"><div class="indeterminate"><div></div></div><p class="muted">Reading this invoice…</p></div>` : html`
+          ${!detail || detail.state === "reading" ? html`<div class="reading"><div class="indeterminate"><div></div></div><p class="muted">${t("Reading this invoice…")}</p></div>` : html`
             ${detail.notice && html`<div class=${"notice " + detail.notice.kind}>
               <p>${detail.notice.text}</p>
-              ${detail.notice.retry && html`<button class="btn small" onClick=${retry}>Read again with Gemini</button>`}
+              ${detail.notice.retry && html`<button class="btn small" onClick=${retry}>${t("Read again with Gemini")}</button>`}
             </div>`}
             <div class="form">
               ${session.fields.map((f) => html`<label class=${"fld" + (f.type === "text" ? " full" : "")}>
-                <span>${f.label}</span>
+                <span>${t(f.label)}</span>
                 <input class="input" value=${form[f.key] || ""} placeholder=${f.type === "date" ? "YYYY.MM.DD" : f.type === "number" ? "0.00" : ""}
                   onInput=${(e) => edit(f.key, e.target.value)} />
               </label>`)}
             </div>
-            <div class="result"><div class="eyebrow">Will be saved as</div><p class="mono">${result || "…"}</p></div>`}
+            <div class="result"><div class="eyebrow">${t("Will be saved as")}</div><p class="mono">${result || "…"}</p></div>`}
         </div>
         <div class="nav">
           <button class="btn icon big" disabled=${cur === 0} onClick=${prev}><${Icon} name="left" /></button>
-          <button class="btn primary grow" onClick=${next}>${last ? "Looks right" : "Looks right · Next"} <${Icon} name="right" /></button>
+          <button class="btn primary grow" onClick=${next}>${last ? t("Looks right") : t("Looks right · Next")} <${Icon} name="right" /></button>
         </div>
       </div>
     </div>`}

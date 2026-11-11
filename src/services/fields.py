@@ -192,13 +192,13 @@ FORBIDDEN = re.compile(r'[<>:"/\\|?*]')
 def separator_problem(sep):
     """None if `sep` can be used between filename parts, else a short reason."""
     if sep == "":
-        return "The separator can't be empty."
+        return __import__("src.services.i18n", fromlist=["tr"]).tr("The separator can't be empty.")
     if FORBIDDEN.search(sep) or any(ord(c) < 32 for c in sep):
         return 'Windows doesn\'t allow  < > : " / \\ | ? *  in file names.'
     if len(sep) > 10:
-        return "Keep the separator short (10 characters at most)."
+        return __import__("src.services.i18n", fromlist=["tr"]).tr("Keep the separator short (10 characters at most).")
     if sep.strip(" .") == "" and sep != " ":
-        return "Use at least one visible character (or a single space)."
+        return __import__("src.services.i18n", fromlist=["tr"]).tr("Use at least one visible character (or a single space).")
     return None
 
 
