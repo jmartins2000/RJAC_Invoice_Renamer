@@ -769,7 +769,8 @@ class Api:
         base, ext = os.path.splitext(w["name"])
         base = re.sub(r"\s*\(atualizado [^)]*\)$", "", base)
         name = f"{base} (atualizado {datetime.date.today().isoformat()}){ext}"
-        out = self._ask_save(os.path.dirname(w["original"]), name, (f"Excel (*{ext})",))
+        types = ("Excel with macros (*.xlsm)",) if ext.lower() == ".xlsm" else ("Excel (*.xlsx)",)
+        out = self._ask_save(os.path.dirname(w["original"]), name, types)
         if not out:
             return None
         if os.path.abspath(out) == os.path.abspath(w["original"]):

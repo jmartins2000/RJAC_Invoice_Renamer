@@ -119,8 +119,26 @@ def _subtotals(ws_f, ws_v, layout, upto):
     return out
 
 
-def read(path):
-    """Everything in his workbook, with a check report per year sheet."""
+def _signature(header):
+    """A sheet's header row as a key, to recognise the same layout next time."""
+    return "|".join(efatura._plain(efatura._cell(c)) for c in header).rstrip("|")
+
+
+def _saved_layout(ws, rows, saved):
+    """A layout the user confirmed before for this client, if this sheet has the same header row."""
+    for i, r in enumerate(rows[:40]):
+        sig = _signature(r)
+        if sig and sig in saved:
+            lay = dict(saved[sig])
+            return {**lay, "sheet": ws.title, "header_row": i + 1}
+    return None
+
+
+def read(path, overrides=None, saved=None, skip=()):
+    """Everything in his workbook, with a check report per year sheet.
+    overrides: {sheet: layout} chosen by the user (or the agent) for this import;
+    saved: {signature: layout} remembered for this client; skip: sheets to leave out."""
+    overrides, saved = overrides or {}, saved or {}
     wb_v = _open(path, data_only=True)  # cached values (what Excel last calculated)
     wb_f = _open(path)                  # formulas (to find his SUBTOTAL ranges)
     codes, client_name, client_nif = _codes_from(wb_v)
@@ -128,10 +146,15 @@ def read(path):
     sheets = []
     for ws in wb_v.worksheets:
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
-        layout = find_layout(ws, rows)
+        if ws.title in skip:
+            continue
+        layout = overrides.get(ws.title) or _saved_layout(ws, rows, saved) or find_layout(ws, rows)
         if not layout:
             continue
-        year = _year_of(ws, rows)
+        layout = {**layout, "cols": {k: int(v) for k, v in layout["cols"].items()}, "sheet": ws.title}
+        layout.setdefault("number_has_atcud", False)
+        layout.setdefault("code_col", None)
+        year = layout.get("year") or _year_of(ws, rows)
         cols, h = layout["cols"], layout["header_row"]
         docs, skipped, unknown_codes = [], [], []
         first = last = None
@@ -223,6 +246,8 @@ def _wdb():
     db = efatura._db()
     db.execute("CREATE TABLE IF NOT EXISTS efatura_workbook (project TEXT PRIMARY KEY, original TEXT, "
                "copy TEXT, codes_json TEXT, imported_at TEXT)")
+    if "layouts_json" not in {r[1] for r in db.execute("PRAGMA table_info(efatura_workbook)")}:
+        db.execute("ALTER TABLE efatura_workbook ADD COLUMN layouts_json TEXT")
     return db
 
 
@@ -247,6 +272,26 @@ def codes_for(project):
              "text": colours.get(c["code"], {}).get("text", "000000")} for c in w["codes"]]
 
 
+def saved_layouts(project):
+    with history._lock:
+        r = _wdb().execute("SELECT layouts_json FROM efatura_workbook WHERE project=?",
+                           (os.path.abspath(project),)).fetchone()
+    return json.loads(r[0]) if r and r[0] else {}
+
+
+def _layouts_to_save(path, data):
+    """Signature → layout for every sheet that was read (so the next import of this client's
+    workbook needs no help)."""
+    wb = _open(path, data_only=True)
+    out = {}
+    for s in data["sheets"]:
+        lay = s["layout"]
+        row = [c.value for c in wb[s["sheet"]][lay["header_row"]]]
+        out[_signature(row)] = {"cols": lay["cols"], "code_col": lay["code_col"],
+                                "number_has_atcud": lay.get("number_has_atcud", False)}
+    return out
+
+
 def import_workbook(project, path, data=None):
     """Stores every document and code of his workbook in the client. His codes win over the app's.
     Returns {"report": [...], "new": n, "documents": n, "client_name", "client_nif"}."""
@@ -265,11 +310,13 @@ def import_workbook(project, path, data=None):
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     kept = os.path.join(folder, f"{stamp} {os.path.basename(path)}")
     shutil.copy2(path, kept)
+    layouts = {**saved_layouts(project), **_layouts_to_save(path, data)}  # before taking the lock
     with history._lock:
         db = _wdb()
-        db.execute("INSERT OR REPLACE INTO efatura_workbook VALUES (?,?,?,?,?)",
+        db.execute("INSERT OR REPLACE INTO efatura_workbook (project, original, copy, codes_json, imported_at, "
+                   "layouts_json) VALUES (?,?,?,?,?,?)",
                    (project, os.path.abspath(path), kept, json.dumps(data["codes"], ensure_ascii=False),
-                    datetime.datetime.now().isoformat(timespec="seconds")))
+                    datetime.datetime.now().isoformat(timespec="seconds"), json.dumps(layouts, ensure_ascii=False)))
         db.commit()
     return {"report": report(data), "new": new, "documents": len(docs),
             "client_name": data["client_name"], "client_nif": data["client_nif"]}
@@ -369,7 +416,7 @@ def export_workbook(project, out_path):
     w = info(project)
     if not w or not os.path.exists(w["copy"]):
         raise ValueError("This client has no workbook imported.")
-    data = read(w["copy"])
+    data = read(w["copy"], saved=saved_layouts(project))
     wb = _open(w["copy"])
     app_codes = efatura.codes(project)
     view = efatura.compare(project)
@@ -420,3 +467,55 @@ def export_workbook(project, out_path):
     wb.save(out_path)
     summary["path"] = out_path
     return summary
+
+
+# ------------------------------------------------------------------ preview (for mapping by hand)
+FIELDS = [  # what a column can be, in the order shown to the user
+    ("supplier", "Supplier (NIF - name)"), ("supplier_nif", "Supplier NIF"), ("supplier_name", "Supplier name"),
+    ("number", "Document number"), ("atcud", "ATCUD / control code"), ("date", "Date"), ("type", "Type"),
+    ("sector", "Sector"), ("status", "Status"), ("total", "Total"), ("vat", "IVA"), ("base", "Base"),
+    ("code", "Code"),
+]
+
+
+def _show(v):
+    if v is None:
+        return ""
+    if isinstance(v, datetime.datetime):
+        return v.date().isoformat() if not (v.hour or v.minute) else v.isoformat(sep=" ", timespec="minutes")
+    if isinstance(v, float):
+        return f"{v:.2f}" if abs(v) < 1e12 else str(v)
+    return str(v)[:60]
+
+
+def preview(path, project=None, rows=40, cols=20):
+    """Each sheet's first rows as text + how the app would read it now (or None if it can't tell)."""
+    wb = _open(path, data_only=True)
+    saved = saved_layouts(project) if project else {}
+    out = []
+    for ws in wb.worksheets:
+        values = [list(r) for r in ws.iter_rows(values_only=True)]
+        filled = sum(1 for r in values if sum(1 for c in r if c not in (None, "")) >= 3)
+        layout = _saved_layout(ws, values, saved) or find_layout(ws, values)
+        if layout:
+            layout = {**layout, "year": _year_of(ws, values)}
+        width = min(cols, max((len(r) for r in values[:rows]), default=0))
+        out.append({
+            "sheet": ws.title, "rows": [[_show(c) for c in (r + [None] * width)[:width]] for r in values[:rows]],
+            "total_rows": len(values), "layout": layout, "year": _year_of(ws, values),
+            "looks_like_data": filled >= 5 and "dados" not in efatura._plain(ws.title),
+        })
+    return out
+
+
+def try_layout(path, sheet, layout):
+    """What a mapping would import from one sheet: counts, total and a few example documents."""
+    data = read(path, overrides={sheet: layout}, skip=())
+    s = next((x for x in data["sheets"] if x["sheet"] == sheet), None)
+    if not s:
+        return {"documents": 0, "coded": 0, "total": 0, "examples": []}
+    docs = s["documents"]
+    return {"documents": len(docs), "coded": sum(1 for d in docs if d["code"]),
+            "total": round(sum(d["doc"]["total"] for d in docs), 2), "skipped": len(s["skipped_rows"]),
+            "examples": [{**d["doc"], "code": d["code"], "row": d["row"]} for d in docs[:3]],
+            "notes": report({"sheets": [s]})[0]["notes"]}
