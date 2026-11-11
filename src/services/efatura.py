@@ -440,5 +440,31 @@ def delete_project(project):
         _rdb()
         for table, col in (("efatura", "project"), ("efatura_resolved", "project"), ("efatura_codes", "project")):
             db.execute(f"DELETE FROM {table} WHERE {col}=?", (project,))
+        if db.execute("SELECT name FROM sqlite_master WHERE name='efatura_workbook'").fetchone():
+            db.execute("DELETE FROM efatura_workbook WHERE project=?", (project,))
         db.commit()
     shutil.rmtree(exports_dir(project), ignore_errors=True)
+
+
+def move_project(old, new):
+    """Moves a client's e-Fatura data (rows, decisions, codes, workbook, kept files) to its new folder."""
+    old, new = os.path.abspath(old), os.path.abspath(new)
+    with history._lock:
+        db = _cdb()
+        _rdb()
+        tables = ["efatura", "efatura_resolved", "efatura_codes"]
+        if db.execute("SELECT name FROM sqlite_master WHERE name='efatura_workbook'").fetchone():
+            tables.append("efatura_workbook")
+        for t in tables:
+            db.execute(f"UPDATE {t} SET project=? WHERE project=?", (new, old))
+        db.commit()
+    a, b = exports_dir(old), exports_dir(new)
+    if os.path.isdir(a) and not os.path.exists(b):
+        import shutil
+        shutil.move(a, b)
+        if db.execute("SELECT name FROM sqlite_master WHERE name='efatura_workbook'").fetchone():
+            with history._lock:
+                for proj, cp in db.execute("SELECT project, copy FROM efatura_workbook WHERE project=?", (new,)).fetchall():
+                    if cp and cp.startswith(a):
+                        db.execute("UPDATE efatura_workbook SET copy=? WHERE project=?", (b + cp[len(a):], proj))
+                db.commit()

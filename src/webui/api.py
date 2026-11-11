@@ -196,6 +196,41 @@ class Api:
         p = history.project(path) or {}
         return p.get("name") or os.path.basename(path) or path
 
+    def choose_folder(self, start=None):
+        chosen = self._ask_folder(start)
+        return os.path.abspath(chosen) if chosen else None
+
+    def create_client(self, name, nif, folder, dest=None):
+        """New client: name, optional NIF, the folder its receipts arrive in, where renamed copies go."""
+        if not folder or not os.path.isdir(folder):
+            return {"error": "Choose the folder where this client's receipts are."}
+        path = os.path.abspath(folder)
+        existing = history.project(path)
+        if existing:
+            return {"error": f"That folder is already the client "
+                             f"\"{existing.get('name') or os.path.basename(path)}\"."}
+        history.add_project(path)
+        history.set_details(path, name, nif)
+        if dest:
+            history.set_destination(path, dest)
+        return {"path": path}
+
+    def change_client_folder(self, path):
+        """The client's receipts are now in another folder (records move along; files don't)."""
+        new = self._ask_folder(os.path.dirname(path))
+        if not new:
+            return None
+        new = os.path.abspath(new)
+        if new == os.path.abspath(path):
+            return None
+        try:
+            history.move_project(path, new)
+            efatura.move_project(path, new)
+        except ValueError as e:
+            return {"error": str(e)}
+        self._ef_cache.pop(path, None)
+        return {"path": new}
+
     def rename_client(self, path, name, nif=""):
         history.add_project(path)
         history.set_details(path, name, nif)

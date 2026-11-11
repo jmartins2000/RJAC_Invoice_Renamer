@@ -189,6 +189,30 @@ check(ws.cell(row=2, column=1).fill.start_color.rgb.endswith("00B050") or
       "code 1 rows coloured green like his workbook")
 check("Totais mensais" in wb.sheetnames, "monthly totals sheet")
 
+print("\nPart 4 — clients: name, move to another folder, delete")
+api.rename_client(c3, "Cliente Códigos, Lda", "513 215 204")
+p3 = history.project(c3)
+check(p3["name"] == "Cliente Códigos, Lda" and p3["nif"] == "513215204", "name and NIF saved (NIF digits only)")
+moved = os.path.join(WORK, "Pasta Nova")
+os.makedirs(moved)
+history.move_project(c3, moved)
+efatura.move_project(c3, moved)
+check(history.project(c3) is None and history.project(moved)["name"] == "Cliente Códigos, Lda", "client moved with its name")
+check(len(history.query(folder=moved)) == 1, "its invoices moved")
+check(efatura.stored_count(moved) == 4 and 3 in efatura.codes(moved).values(), "its e-Fatura rows and codes moved")
+other = os.path.join(WORK, "Outro")
+os.makedirs(other)
+history.add_project(other)
+try:
+    history.move_project(moved, other)
+    check(False, "moving onto another client's folder is refused")
+except ValueError:
+    check(True, "moving onto another client's folder is refused")
+api.delete_client(moved)
+check(history.project(moved) is None and efatura.stored_count(moved) == 0 and not efatura.codes(moved),
+      "deleting a client removes all its data")
+check(os.path.isdir(moved), "deleting a client leaves its folder alone")
+
 shutil.rmtree(WORK, ignore_errors=True)
 print("\nALL OK" if not failures else f"\n{len(failures)} FAILED")
 sys.exit(1 if failures else 0)

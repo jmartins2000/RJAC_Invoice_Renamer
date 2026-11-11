@@ -202,6 +202,26 @@ def set_details(path, name=None, nif=None):
         _db().commit()
 
 
+def move_project(old, new):
+    """The client's receipts now live in another folder: moves all its records to the new path.
+    Files are not moved (the user did that, or wants a different folder from now on)."""
+    old, new = os.path.abspath(old), os.path.abspath(new)
+    if old == new:
+        return
+    with _lock:
+        db = _db()
+        if db.execute("SELECT 1 FROM projects WHERE path=? AND COALESCE(hidden,0)=0", (new,)).fetchone():
+            raise ValueError("That folder is already another client in the app.")
+        db.execute("DELETE FROM projects WHERE path=?", (new,))  # a hidden leftover
+        db.execute("UPDATE projects SET path=? WHERE path=?", (new, old))
+        db.execute("UPDATE projects SET dest_folder=NULL WHERE path=? AND dest_folder=?", (new, old))
+        db.execute("UPDATE invoices SET project=? WHERE project=?", (new, old))
+        # receipts that were in the old folder are now expected in the new one
+        db.execute("UPDATE invoices SET folder=? WHERE project=? AND folder=?", (new, new, old))
+        db.execute("UPDATE runs SET project=? WHERE project=?", (new, old))
+        db.commit()
+
+
 def delete_project(path):
     """Deletes a client from the app: its invoices as read, runs and the client itself.
     Never touches files on disk. (e-Fatura data is deleted by efatura.delete_project.)"""

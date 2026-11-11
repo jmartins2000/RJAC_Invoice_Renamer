@@ -348,3 +348,6 @@ section:first-child { padding-top: 8px; }
 .version-row:last-child { border-bottom: none; }
 .version-row .grow { min-width: 0; }
 .btn-col { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.seg.wide { display: flex; }
+.seg.wide button { flex: 1; }
+.mt-s { margin-top: 8px; }

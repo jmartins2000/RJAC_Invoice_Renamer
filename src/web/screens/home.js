@@ -1,6 +1,6 @@
 // Home (your clients), Welcome (API key) and Done (after renaming).
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
-import { api, ctx, FeedbackButton, html, Icon, money, niceDate, plural, TopBar } from "../ui.js";
+import { api, ctx, FeedbackButton, html, Icon, Modal, money, niceDate, plural, TopBar } from "../ui.js";
 
 // ---------- Home ----------
 function FolderRow({ p, first, onOpen }) {
@@ -21,10 +21,49 @@ function FolderRow({ p, first, onOpen }) {
     </div>`;
 }
 
+function NewClient({ onClose, onCreated }) {
+  const [name, setName] = useState("");
+  const [nif, setNif] = useState("");
+  const [folder, setFolder] = useState(null);
+  const [elsewhere, setElsewhere] = useState(false);
+  const [dest, setDest] = useState(null);
+  const [err, setErr] = useState("");
+  const pick = async (set, start) => { const f = await api.choose_folder(start); if (f) set(f); };
+  const badNif = nif && nif.replace(/\D/g, "").length !== 9;
+  const ready = name.trim() && folder && !badNif && (!elsewhere || dest);
+  const create = async () => {
+    const r = await api.create_client(name, nif, folder, elsewhere ? dest : null);
+    if (r.error) setErr(r.error); else onCreated(r.path);
+  };
+  const short = (p) => p ? p.split(/[\\/]/).slice(-2).join(" › ") : "";
+  return html`<${Modal} onClose=${onClose} width=${520}>
+    <h2>New client</h2>
+    <label class="field-label">Name</label>
+    <input class="input" value=${name} autofocus placeholder="e.g. INLS Solutions, Lda" onInput=${(e) => setName(e.target.value)} />
+    <label class="field-label">NIF (optional)</label>
+    <input class="input mono" value=${nif} placeholder="500000000" inputmode="numeric" onInput=${(e) => setNif(e.target.value)} />
+    ${badNif && html`<small class="warn">A NIF has 9 digits.</small>`}
+    <label class="field-label">Folder with this client's receipts</label>
+    <div class="dest-box"><span class="ellipsis">${folder ? short(folder) : html`<span class="muted">Not chosen yet</span>`}</span>
+      <button class="link" onClick=${() => pick(setFolder)}>${folder ? "Change" : "Choose…"}</button></div>
+    <label class="field-label">Renamed copies go to</label>
+    <div class="seg wide">
+      <button class=${!elsewhere ? "on" : ""} onClick=${() => setElsewhere(false)}>The same folder</button>
+      <button class=${elsewhere ? "on" : ""} onClick=${() => setElsewhere(true)}>Another folder</button>
+    </div>
+    ${elsewhere && html`<div class="dest-box mt-s"><span class="ellipsis">${dest ? short(dest) : html`<span class="muted">Not chosen yet</span>`}</span>
+      <button class="link" onClick=${() => pick(setDest, folder)}>${dest ? "Change" : "Choose…"}</button></div>`}
+    ${err && html`<p class="error small">${err}</p>`}
+    <div class="actions"><button class="btn" onClick=${onClose}>Cancel</button>
+      <button class="btn solid" disabled=${!ready} onClick=${create}>Create client</button></div>
+  <//>`;
+}
+
 export function Home({ go, update, onUpdate }) {
   const [projects, setProjects] = useState(null);
+  const [adding, setAdding] = useState(false);
   useEffect(() => { ctx.screen = "Home"; ctx.folder = null; api.projects().then(setProjects); }, []);
-  const add = async () => { const path = await api.add_folder(); if (path) go("folder", path); };
+  const add = () => setAdding(true);
   return html`
     <div class="topbar">
       <div class="brand"><img src="logo.png" alt="" /><span>Invoice Renamer</span></div>
@@ -34,13 +73,14 @@ export function Home({ go, update, onUpdate }) {
     </div>
     <div class="page">
       <div class="head">
-        <div><h1>Your clients</h1><div class="sub">One folder per client: its invoices, runs and Excel by quarter or year.</div></div>
-        <button class="btn primary" onClick=${add}>+ Add a client folder</button>
+        <div><h1>Your clients</h1><div class="sub">Each client keeps its receipts, runs, e-Fatura data and Excel exports.</div></div>
+        <button class="btn primary" onClick=${add}>+ New client</button>
       </div>
       ${projects === null ? null : projects.length === 0 ? html`
-        <div class="empty"><b>No clients yet</b><p>Add a client's folder of invoices (PDFs or photos).</p></div>` : html`
+        <div class="empty"><b>No clients yet</b><p>Create a client and choose the folder where its receipts arrive (PDFs or photos).</p></div>` : html`
         <div class="list">${projects.map((p, i) => html`<${FolderRow} key=${p.path} p=${p} first=${i === 0} onOpen=${(path) => go("folder", path)} />`)}</div>`}
-    </div>`;
+    </div>
+    ${adding && html`<${NewClient} onClose=${() => setAdding(false)} onCreated=${(path) => { setAdding(false); go("folder", path); }} />`}`;
 }
 
 // ---------- Welcome (first launch, or no key) ----------

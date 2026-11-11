@@ -117,6 +117,13 @@ export function Folder({ path, go }) {
     const r = await api.change_dest(path);
     if (r) setInfo({ ...info, ...r });
   };
+  const changeFolder = async () => {
+    if (!(await confirmBox({ title: "Change the receipts folder", ok: "Choose folder…",
+      text: "Use this when the client's receipts moved to another folder, or should come from another folder from now on.\n\nEverything the app knows about this client (invoices read, runs, e-Fatura data and codes) stays with the client. No files are moved." }))) return;
+    const r = await api.change_client_folder(path);
+    if (!r) return;
+    if (r.error) toast(r.error, "warn"); else { toast("Receipts folder changed."); go("folder", r.path); }
+  };
   const remove = async () => {
     if (await confirmBox({ title: `Delete ${info.name}?`, ok: "Delete client", danger: true,
       text: `This removes the client from the app with everything the app keeps about it: invoices as read, runs, imported e-Fatura data and codes.\n\nThe files in the folder are NOT deleted or changed.\n\nIf you add the folder again, its invoices are read again (Gemini cost).` })) {
@@ -125,7 +132,7 @@ export function Folder({ path, go }) {
   };
   const rows = data ? data.rows : [];
   return html`
-    <${TopBar} onBack=${() => go("home")} title=${info.name} sub=${info.where}>
+    <${TopBar} onBack=${() => go("home")} title=${info.name} sub=${info.nif ? `NIF ${info.nif}` : ""}>
       <${FeedbackButton} />
       <button class="btn" disabled=${!rows.length} onClick=${exp}>${exported === true ? "✓ Exported" : exported === false ? "Export failed" : "Export to Excel"}</button>
       <button class="btn solid" disabled=${!button.enabled} onClick=${() => go("review", path)}>${button.label}</button>
@@ -143,8 +150,11 @@ export function Folder({ path, go }) {
       <aside class="side">
         <div class="eyebrow">Client</div>
         <p class="client-name"><b>${info.name}</b>${info.nif && html`<span class="muted"> · NIF ${info.nif}</span>`}</p>
-        ${info.custom_name && html`<small class="muted block">Folder: ${info.folder_name}</small>`}
         <button class="link" onClick=${() => setEditing(true)}>Edit name and NIF</button>
+        <div class="divider"></div>
+        <div class="eyebrow">Receipts folder</div>
+        <p class="break">${info.where}</p>
+        <button class="link" onClick=${changeFolder}>Change</button>
         <div class="divider"></div>
         <div class="eyebrow">Runs</div>
         ${info.runs.length === 0 && html`<p class="muted">None yet</p>`}

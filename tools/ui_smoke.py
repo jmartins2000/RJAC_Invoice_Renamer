@@ -212,6 +212,10 @@ def test():
            "window.addEventListener('unhandledrejection', (e) => __errs.push(String(e.reason && (e.reason.message || e.reason))));")
         shot("0_home")
         os_shot("0_home_window")
+        click("New client")
+        wait("!!document.querySelector('.modal input')", 10, "new client dialog")
+        shot("0b_new_client")
+        click("Cancel", ".modal .btn")
 
         # --- Folder
         click("Faturas Outubro", ".row")
