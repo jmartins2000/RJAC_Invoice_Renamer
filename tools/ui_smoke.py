@@ -314,6 +314,13 @@ def test():
         print("custom range rows:", rows)
         check(rows == 6, f"custom range should show 6 invoices, got {rows}")
         shot("6b_folder_custom_range")
+        # a confirmation dialog (they share the popup layer; a bug there crashed the app)
+        click("Delete client", ".btn-quiet")
+        wait("!!document.querySelector('.modal h2')", 10, "delete confirmation")
+        shot("6b2_delete_confirm")
+        click("Cancel", ".modal .btn")
+        time.sleep(0.5)
+        check(not js("window.__errs && window.__errs.length"), f"errors after a confirmation dialog: {js('window.__errs')}")
 
         # --- e-Fatura
         click("Compare with e-Fatura")

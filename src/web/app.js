@@ -37,8 +37,14 @@ function App() {
     window.addEventListener("error", (e) => {
       api.log_ui(`page error: ${e.message} at ${e.filename}:${e.lineno}:${e.colno}`).catch(() => {});
     });
+    let lastError = { text: "", at: 0 };
     window.addEventListener("unhandledrejection", (e) => {
-      api.log_ui(`unhandled: ${(e.reason && (e.reason.stack || e.reason.message)) || e.reason}`).catch(() => {});
+      const what = String((e.reason && (e.reason.stack || e.reason.message)) || e.reason);
+      // The same error again within a few seconds: don't show it again (a popup that itself fails
+      // would otherwise loop until the app falls over).
+      if (what === lastError.text && Date.now() - lastError.at < 5000) { lastError.at = Date.now(); return; }
+      lastError = { text: what, at: Date.now() };
+      api.log_ui(`unhandled: ${what}`).catch(() => {});
       const msg = String((e.reason && (e.reason.message || e.reason)) || "unknown error").trim().split("\n").pop() || "unknown error";
       toast(t("Something went wrong: {msg}. Please send feedback (speech bubble, top right).", { msg }), "warn");
     });

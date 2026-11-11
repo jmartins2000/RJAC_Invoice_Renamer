@@ -53,7 +53,7 @@ export function Feedback({ onClose }) {
   const [state, setState] = useState("idle");  // idle | sending | sent | saved
   const screen = ctx.screen, folderPath = ctx.folder;
   useEffect(() => { if (folderPath) api.feedback_folder(folderPath).then(setFolder); }, []);
-  usePy("feedback_status", (t) => setStatus({ text: t }), []);
+  usePy("feedback_status", (msg) => setStatus({ text: msg }), []);
 
   const take = async () => {
     setSnipping("capturing");

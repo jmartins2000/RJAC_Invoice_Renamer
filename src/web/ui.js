@@ -146,14 +146,14 @@ export function toast(text, kind = "info") { toastSetter && toastSetter({ text, 
 
 export function GlobalLayers() {
   const [c, setC] = useState(null);
-  const [t, setT] = useState(null);
+  const [pop, setPop] = useState(null);  // (not "t": that's the translation function)
   confirmSetter = setC;
-  toastSetter = setT;
+  toastSetter = setPop;
   useEffect(() => {
-    if (!t) return;
-    api.log_ui(`popup (${t.kind}): ${JSON.stringify(t.text)} on ${ctx.screen}`).catch(() => {});
-    const id = setTimeout(() => setT(null), 4200); return () => clearTimeout(id);
-  }, [t]);
+    if (!pop) return;
+    api.log_ui(`popup (${pop.kind}): ${JSON.stringify(pop.text)} on ${ctx.screen}`).catch(() => {});
+    const id = setTimeout(() => setPop(null), 4200); return () => clearTimeout(id);
+  }, [pop]);
   const close = (v) => { c.resolve(v); setC(null); };
   return html`
     ${c && html`<${Modal} onClose=${() => close(false)} width=${440}>
@@ -164,7 +164,7 @@ export function GlobalLayers() {
         <button class=${"btn solid" + (c.danger ? " danger" : "")} onClick=${() => close(true)} autofocus>${c.ok || t("OK")}</button>
       </div>
     <//>`}
-    ${t && html`<div key=${t.id} class=${"toast " + t.kind}>${t.text}</div>`}`;
+    ${pop && html`<div key=${pop.id} class=${"toast " + pop.kind}>${pop.text}</div>`}`;
 }
 
 /** A dropdown menu (custom, so it looks the same on Mac and Windows). */
