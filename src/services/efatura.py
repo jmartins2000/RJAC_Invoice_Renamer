@@ -408,6 +408,17 @@ def codes(project):
                                    (os.path.abspath(project),)).fetchall())
 
 
+def set_codes(project, pairs):
+    """Many codes at once (importing a workbook): [(row_key, code), …] in one transaction."""
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    project = os.path.abspath(project)
+    with history._lock:
+        db = _cdb()
+        db.executemany("INSERT OR REPLACE INTO efatura_codes VALUES (?,?,?,?)",
+                       [(project, k, int(c), now) for k, c in pairs if c])
+        db.commit()
+
+
 def set_code(project, key, code):
     """code: 1..8 (see CODES); None removes it."""
     with history._lock:

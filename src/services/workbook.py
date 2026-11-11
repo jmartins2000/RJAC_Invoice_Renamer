@@ -34,8 +34,35 @@ def _is_code_header(h):
 
 
 # ------------------------------------------------------------------ reading
-def _open(path, data_only=False):
-    return openpyxl.load_workbook(path, data_only=data_only, keep_vba=path.lower().endswith(".xlsm"))
+_cache = {}
+
+
+def _open(path, data_only=False, cache=True):
+    """Opens a workbook. Reading the same file again (preview → check → import) reuses it: opening his
+    10-year workbook takes about a second each time. cache=False for a copy that will be changed."""
+    key = (os.path.abspath(path), os.path.getmtime(path), data_only)
+    if cache and key in _cache:
+        return _cache[key]
+    wb = openpyxl.load_workbook(path, data_only=data_only, keep_vba=path.lower().endswith(".xlsm"))
+    if cache:
+        for k in [k for k in _cache if k[0] == key[0] and k != key and k[2] == data_only]:
+            del _cache[k]  # older version of the same file
+        if len(_cache) > 6:
+            _cache.clear()
+        _cache[key] = wb
+    return wb
+
+
+NIF_LIKE = re.compile(r"(?<!\d)[1-9]\d{8}(?!\d)")
+
+
+def _nif_rows(rows, limit=400):
+    """How many rows (of the first `limit`) contain something that looks like a NIF."""
+    n = 0
+    for r in rows[:limit]:
+        if any(c is not None and NIF_LIKE.search(efatura._cell(c)) for c in r):
+            n += 1
+    return n
 
 
 def _codes_from(wb):
@@ -133,17 +160,21 @@ def _saved_layout(ws, rows, saved):
     return None
 
 
-def read(path, overrides=None, saved=None, skip=()):
+def read(path, overrides=None, saved=None, skip=(), progress=None):
     """Everything in his workbook, with a check report per year sheet.
     overrides: {sheet: layout} chosen by the user (or the agent) for this import;
     saved: {signature: layout} remembered for this client; skip: sheets to leave out."""
     overrides, saved = overrides or {}, saved or {}
+    say = progress or (lambda *a, **k: None)
+    say("Opening the workbook…", 0.02)
     wb_v = _open(path, data_only=True)  # cached values (what Excel last calculated)
     wb_f = _open(path)                  # formulas (to find his SUBTOTAL ranges)
     codes, client_name, client_nif = _codes_from(wb_v)
     by_label = {efatura._plain(c["label"]): c["code"] for c in (codes or efatura.CODES)}
     sheets = []
-    for ws in wb_v.worksheets:
+    n_sheets = len(wb_v.worksheets)
+    for idx, ws in enumerate(wb_v.worksheets):
+        say(f"Reading sheet {ws.title} ({idx + 1} of {n_sheets})…", 0.05 + 0.75 * idx / max(n_sheets, 1))
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
         if ws.title in skip:
             continue
@@ -295,18 +326,21 @@ def _layouts_to_save(path, data):
     return out
 
 
-def import_workbook(project, path, data=None):
+def import_workbook(project, path, data=None, progress=None):
     """Stores every document and code of his workbook in the client. His codes win over the app's.
     Returns {"report": [...], "new": n, "documents": n, "client_name", "client_nif"}."""
     project = os.path.abspath(project)
-    data = data or read(path)
+    say = progress or (lambda *a, **k: None)
+    data = data or read(path, progress=progress)
     if not data["sheets"]:
         raise ValueError("No sheet in this workbook looks like a list of e-Fatura documents.")
     docs = [d for s in data["sheets"] for d in s["documents"]]
+    say(f"Saving {len(docs):,} documents in the client…", 0.85)
     new = efatura.store_rows(project, [d["doc"] for d in docs])
-    for d in docs:
-        if d["code"]:
-            efatura.set_code(project, efatura.row_key(d["doc"]), d["code"])
+    coded = [(efatura.row_key(d["doc"]), d["code"]) for d in docs if d["code"]]
+    say(f"Saving {len(coded):,} codes…", 0.9)
+    efatura.set_codes(project, coded)
+    say("Keeping a copy of the workbook…", 0.95)
     # keep a copy: it's the template the export writes into (and goes along with feedback)
     folder = efatura.exports_dir(project)
     os.makedirs(folder, exist_ok=True)
@@ -420,7 +454,7 @@ def export_workbook(project, out_path):
     if not w or not os.path.exists(w["copy"]):
         raise ValueError("This client has no workbook imported.")
     data = read(w["copy"], saved=saved_layouts(project))
-    wb = _open(w["copy"])
+    wb = _open(w["copy"], cache=False)  # this one gets changed
     app_codes = efatura.codes(project)
     view = efatura.compare(project)
     auto = {efatura.row_key(r) for _inv, r, _how in view["matched"]}
@@ -498,7 +532,7 @@ def preview(path, project=None, rows=40, cols=20):
     out = []
     for ws in wb.worksheets:
         values = [list(r) for r in ws.iter_rows(values_only=True)]
-        filled = sum(1 for r in values if sum(1 for c in r if c not in (None, "")) >= 3)
+        nifs = _nif_rows(values)
         layout = _saved_layout(ws, values, saved) or find_layout(ws, values)
         if layout:
             layout = {**layout, "year": _year_of(ws, values)}
@@ -506,7 +540,8 @@ def preview(path, project=None, rows=40, cols=20):
         out.append({
             "sheet": ws.title, "rows": [[_show(c) for c in (r + [None] * width)[:width]] for r in values[:rows]],
             "total_rows": len(values), "layout": layout, "year": _year_of(ws, values),
-            "looks_like_data": filled >= 5 and "dados" not in efatura._plain(ws.title),
+            # a list of documents has suppliers' NIFs on its rows (his EFATURA summary and Retenções don't)
+            "looks_like_data": nifs >= 5 and "dados" not in efatura._plain(ws.title),
         })
     return out
 

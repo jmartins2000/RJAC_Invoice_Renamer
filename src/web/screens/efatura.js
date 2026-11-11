@@ -1,6 +1,6 @@
 // e-Fatura reconciliation: the client's receipts vs. the AT's list, one case at a time.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
-import { api, confirmBox, ctx, FeedbackButton, html, Icon, Menu, Modal, niceDate, plain2, toast, TopBar } from "../ui.js";
+import { api, confirmBox, ctx, FeedbackButton, html, Icon, Menu, Modal, niceDate, plain2, toast, TopBar, usePy } from "../ui.js";
 import { PeriodMenu } from "./folder.js";
 import { Preview } from "./review.js";
 
@@ -230,6 +230,23 @@ function WorkbookMapper({ m, path, onClose, onImported }) {
     ${err && html`<p class="error small">${err}</p>`}
     <div class="actions"><button class="btn" disabled=${busy} onClick=${onClose}>Cancel</button>
       <button class="btn solid" disabled=${!allReady || busy} onClick=${go}>${busy ? "Importing…" : "Import"}</button></div>
+  <//>
+  ${busy && html`<${ImportProgress} title="Importing the client's workbook" />`}`;
+}
+
+/** While a workbook is being read: a bar and the steps as they happen. */
+function ImportProgress({ title }) {
+  const [steps, setSteps] = useState([]);
+  const [fraction, setFraction] = useState(0);
+  usePy("wb_progress", (p) => {
+    setSteps((old) => (p.start ? [] : old).concat([p.text]).slice(-8));
+    if (p.fraction != null) setFraction(p.fraction);
+  }, []);
+  return html`<${Modal} width=${520}>
+    <h2>${title}</h2>
+    <div class="bar mt"><div style=${{ width: `${Math.round(fraction * 100)}%` }}></div></div>
+    <div class="steps">${steps.map((t, i) => html`<div class=${i === steps.length - 1 ? "now" : "done"}>
+      ${i === steps.length - 1 ? html`<span class="spinner small"></span>` : html`<${Icon} name="check" size=${12} stroke=${3} />`} ${t}</div>`)}</div>
   <//>`;
 }
 
@@ -296,7 +313,7 @@ export function Efatura({ path, go }) {
     if (r && r.mapping) { setReport(null); setMapping(r.mapping); }
   };
   const importWorkbook = async () => {
-    setBusy("Reading the workbook… (if its layout is new, Gemini works it out: up to a minute)");
+    setBusy("Reading the workbook…");
     try {
       const r = await api.efatura_import_workbook(path);
       if (!r) return;
@@ -372,6 +389,7 @@ export function Efatura({ path, go }) {
         </div>
         <div class="ef-right">${selected ? html`<${Detail} key=${selected.id} item=${selected} path=${path} reload=${load} codes=${codes} />` : view && html`<p class="muted pad">Nothing selected.</p>`}</div>
       </div>`}
+    ${busy && busy.startsWith("Reading the workbook") && html`<${ImportProgress} title="Importing the client's workbook" />`}
     ${report && html`<${WorkbookReport} r=${report} path=${path} onAdjust=${adjust} onClose=${() => { setReport(null); load(); }} />`}
     ${mapping && html`<${WorkbookMapper} m=${mapping} path=${path} onClose=${() => setMapping(null)} onImported=${imported} />`}`;
 }

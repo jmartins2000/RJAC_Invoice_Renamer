@@ -760,6 +760,8 @@ class Api:
         if not chosen:
             return None
         self._wb_pending = chosen
+        say = self._wb_say
+        say(f"Opening {os.path.basename(chosen)}…", 0.02, start=True)
         try:
             sheets = workbook.preview(chosen, path)
         except Exception as e:  # damaged / not an Excel file
@@ -772,7 +774,8 @@ class Api:
         if unknown and key:  # ask Gemini to work out the layout; shown as a suggestion to confirm
             try:
                 from src.services import layout_agent
-                res = layout_agent.propose(key, chosen)
+                say("Some sheets have a layout the app doesn't know: asking Gemini to work it out…", 0.08)
+                res = layout_agent.propose(key, chosen, progress=say)
                 for sh in unknown:
                     if sh["sheet"] in res["layouts"]:
                         sh["layout"] = {**res["layouts"][sh["sheet"]], "suggested": True}
@@ -785,6 +788,11 @@ class Api:
                 agent = {"error": gemini_friendly(e)}
         return {"mapping": {"file": os.path.basename(chosen), "sheets": sheets, "agent": agent,
                             "fields": [{"key": k, "label": v} for k, v in workbook.FIELDS]}}
+
+    def _wb_say(self, text, fraction=None, start=False):
+        """A step of a workbook import, shown in the progress window (and printed to the log)."""
+        print(f"[workbook] {text}", flush=True)
+        self._emit("wb_progress", {"text": text, "fraction": fraction, "start": start})
 
     def efatura_workbook_try(self, sheet, layout):
         """What a mapping would import from one sheet (live check in the mapping screen)."""
@@ -801,8 +809,11 @@ class Api:
             return {"error": str(e)}
 
     def _wb_import(self, path, file, layouts=None, skip=()):
-        data = workbook.read(file, overrides=layouts or {}, saved=workbook.saved_layouts(path), skip=set(skip))
-        r = workbook.import_workbook(path, file, data=data)
+        say = self._wb_say
+        data = workbook.read(file, overrides=layouts or {}, saved=workbook.saved_layouts(path), skip=set(skip),
+                             progress=say)
+        r = workbook.import_workbook(path, file, data=data, progress=say)
+        say(f"Done: {r['documents']:,} documents.", 1.0)
         project = history.project(path) or {}
         r["offer_details"] = bool((r["client_name"] and not project.get("name"))
                                   or (r["client_nif"] and not project.get("nif")))

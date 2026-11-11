@@ -146,7 +146,22 @@ class _Session:
                 "year": int(year) if year else None, "number_has_atcud": False}
 
 
-def propose(api_key, path, model=None):
+def _describe(name, args):
+    """What the agent is doing, in words for the progress window."""
+    if name == "list_sheets":
+        return "Gemini is listing the sheets"
+    if name == "read_rows":
+        return f"Gemini is reading sheet {args.get('sheet')}, rows {args.get('first_row')}–{args.get('last_row')}"
+    if name == "find_text":
+        return f"Gemini is searching for “{args.get('text')}”"
+    if name == "try_layout":
+        return f"Gemini is trying a layout on sheet {args.get('sheet')}"
+    if name == "submit":
+        return "Gemini has a proposal"
+    return f"Gemini: {name}"
+
+
+def propose(api_key, path, model=None, progress=None):
     from src.services import models, settings
     from src.services.gemini_service import _pricing
     model = model or settings.load().get("model") or models.default_model()
@@ -162,6 +177,8 @@ def propose(api_key, path, model=None):
     contents = [types.Content(role="user", parts=[types.Part.from_text(text=PROMPT.format(fields=fields))])]
     tokens_in = tokens_out = steps = 0
     notes = ""
+    say = progress or (lambda *a, **k: None)
+    say("Gemini is looking at the workbook…", 0.1)
     while steps < MAX_STEPS and s.submitted is None:
         steps += 1
         resp = client.models.generate_content(model=model, contents=contents, config=config)
@@ -181,6 +198,7 @@ def propose(api_key, path, model=None):
             continue
         replies = []
         for call in calls:
+            say(_describe(call.name, call.args or {}), min(0.9, 0.1 + steps * 0.08))
             fn = by_name.get(call.name)
             try:
                 result = fn(**(call.args or {})) if fn else {"error": f"No tool {call.name}"}
