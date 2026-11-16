@@ -212,7 +212,11 @@ section .menu-btn { height: 42px; background: var(--snow); border: 1px solid var
 .zoom button { width: 30px; height: 28px; border-radius: 7px; display: grid; place-items: center; }
 .zoom button:hover { background: var(--snowfield); }
 .zoom .zoom-pct { width: 52px; font-size: 12px; font-variant-numeric: tabular-nums; }
-.panel { width: 340px; flex-shrink: 0; border-left: 1px solid var(--frost); display: flex; flex-direction: column; padding: 24px 24px 20px; min-height: 0; }
+.panel { width: 340px; flex-shrink: 0; border-left: 1px solid var(--frost); display: flex; flex-direction: column; padding: 24px 24px 20px; min-height: 0; position: relative; }
+.panel-resize { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
+.panel-resize:hover, body.resizing .panel-resize { background: linear-gradient(to right, transparent 3px, var(--evergreen) 3px, var(--evergreen) 5px, transparent 5px); }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .preview { pointer-events: none; }
 .file-title { font-size: 18px; margin: 4px 0 0; word-break: break-word; }
 .panel-scroll { flex: 1; overflow: auto; margin: 0 -8px; padding: 0 8px; min-height: 0; }
 .panel-scroll .reading { padding-top: 40px; }  /* not the spinning .dot.reading in the file list */
@@ -445,3 +449,14 @@ tr.row-new td.status-new { font-weight: 600; }
 .multi-choice small { display: block; margin-top: 8px; }
 .table tr.part-row td { color: var(--lichen); font-size: 12.5px; padding-top: 6px; padding-bottom: 6px; border-top: none; }
 .part-arrow { margin-right: 6px; color: var(--evergreen); }
+.inside-list { display: flex; flex-direction: column; margin: 6px 0 8px; }
+.inside-item { display: flex; gap: 8px; padding: 7px 6px; border-top: 1px solid var(--frost); cursor: pointer; border-radius: 6px; min-width: 0; }
+.inside-item:hover, .inside-item.on { background: var(--snowfield); }
+.inside-item .n { width: 14px; flex-shrink: 0; color: var(--evergreen); font-weight: 700; font-size: 12.5px; }
+.inside-item .body { flex: 1; min-width: 0; }
+.inside-item .line1 { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; min-width: 0; }
+.inside-item .line1 b { flex: 1; min-width: 0; font-weight: 600; }
+.inside-item .amt { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
+.inside-item .line2 { display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--lichen); margin-top: 2px; min-width: 0; }
+.inside-item .line2 .ellipsis { flex: 1; min-width: 0; }
+.inside-item .line2 .d { white-space: nowrap; }

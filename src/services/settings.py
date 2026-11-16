@@ -17,6 +17,7 @@ DEFAULTS = {
     "appearance": "system",      # system | light | dark
     "language": "pt",            # pt (Portugal) | en
     "split_multi": True,         # a PDF with several invoices: one renamed copy per invoice
+    "review_panel_width": None,  # review screen: width of the values panel (dragged)
     "column_widths": {},         # client table: column key -> width in px (set by dragging)
     "last_source": None,
     "model": None,  # None = the catalog's default

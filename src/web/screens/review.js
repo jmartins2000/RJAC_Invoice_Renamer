@@ -1,6 +1,6 @@
 // Review: file list · preview (zoom, QR outline) · fields. Values come from history, filename, QR or Gemini.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
-import { api, Calendar, ctx, FeedbackButton, html, Icon, Modal, money, plural, StatusDot, t, tn, Toggle, TopBar, usePy, Spinner } from "../ui.js";
+import { api, Calendar, ctx, FeedbackButton, html, Icon, Modal, money, niceDate, plural, StatusDot, t, tn, Toggle, TopBar, usePy, Spinner } from "../ui.js";
 
 export function Preview({ pages, qr, qrs = [], focus = null, loading, compact = false }) {
   const [zoom, setZoom] = useState(1);
@@ -84,20 +84,24 @@ function DateInput({ value, onChange }) {
 function InvoicesInside({ inv, focus, onFocus }) {
   return html`<div class="inside">
     <div class="eyebrow">${tn(inv.items.length, "This PDF has {n} invoice", "This PDF has {n} invoices")}</div>
-    <table class="inside-table">
-      <tbody>${inv.items.map((x, i) => html`<tr class=${focus === i + 1 ? "on" : ""} onClick=${() => onFocus(i + 1)} title=${inv.names && inv.names[i] ? t("Copy: {name}", { name: inv.names[i] }) : ""}>
-        <td class="n">${i + 1}</td>
-        <td class="sup"><b>${x.supplier || x.nif || "—"}</b><small class="muted">${x.number}</small></td>
-        <td class="d">${x.date}</td>
-        <td class="num" title=${x.credit ? t("Credit note: subtracts") : ""}>${x.credit ? "−" : ""}${money(x.total)}</td>
-        <td class="q">${x.qr ? html`<span class="qr-ok" title=${t("From its official AT QR code")}>QR</span>` : ""}</td>
-      </tr>`)}</tbody>
-    </table>
+    <div class="inside-list">${inv.items.map((x, i) => html`
+      <div class=${"inside-item" + (focus === i + 1 ? " on" : "")} onClick=${() => onFocus(i + 1)}
+          title=${inv.names && inv.names[i] ? t("Copy: {name}", { name: inv.names[i] }) : ""}>
+        <span class="n">${i + 1}</span>
+        <div class="body">
+          <div class="line1"><b class="ellipsis">${x.supplier || x.nif || "—"}</b>
+            <span class="amt" title=${x.credit ? t("Credit note: subtracts") : ""}>${x.credit ? "−" : ""}${money(x.total)}</span></div>
+          <div class="line2"><span class="ellipsis">${x.number}</span><span class="d">${niceDate(x.date, true)}</span>
+            ${x.qr && html`<span class="qr-ok" title=${t("From its official AT QR code")}>QR</span>`}</div>
+        </div>
+      </div>`)}</div>
     <small class=${inv.sum_ok ? "green" : "muted"}>${inv.sum_ok ? t("✓ The invoices add up to the document's total ({sum})", { sum: money(inv.sum) })
       : t("The invoices add up to {sum}; the document's total is {total}", { sum: money(inv.sum), total: inv.total == null ? "—" : money(inv.total) })}</small>
     ${inv.clone != null && html`<small class="muted block">${t("This file is the copy for invoice {n}.", { n: inv.clone + 1 })}</small>`}
   </div>`;
 }
+
+const PANEL_DEFAULT = 340;
 
 export function Review({ path, go, onDone }) {
   const [session, setSession] = useState(null);
@@ -111,6 +115,16 @@ export function Review({ path, go, onDone }) {
   const [renaming, setRenaming] = useState(null);
   const [exported, setExported] = useState(null);
   const [focusQr, setFocusQr] = useState(null);
+  const [panelW, setPanelW] = useState(PANEL_DEFAULT);
+  const startPanelDrag = (e) => {
+    e.preventDefault();
+    const x0 = e.clientX, w0 = panelW;
+    let w = w0;
+    const move = (ev) => { w = Math.max(300, Math.min(760, w0 - (ev.clientX - x0))); setPanelW(w); };
+    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); document.body.classList.remove("resizing"); if (w !== w0) api.set_panel_width(w); };
+    document.body.classList.add("resizing");
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+  };
   const curRef = useRef(0);
   const filesRef = useRef([]);
   const dirty = useRef(false);
@@ -120,6 +134,7 @@ export function Review({ path, go, onDone }) {
     api.review_start(path).then((s) => {
       if (s.error === "no_key") { go("welcome", { then: ["folder", path] }); return; }
       setSession(s); setFiles(s.files); filesRef.current = s.files;
+      if (s.panel_width) setPanelW(s.panel_width);
       if (s.files.length) show(0);
       api.review_summary().then(setSummary);
     });
@@ -130,6 +145,7 @@ export function Review({ path, go, onDone }) {
     if (!d || filesRef.current[curRef.current]?.name !== name) return;
     dirty.current = false;
     setDetail(d); setForm(d.form); setResult(d.result || "");
+    if (d.invoices && d.invoices.clone != null) setFocusQr(d.invoices.clone + 1);  // a copy: its own invoice
   };
   const show = (i) => {
     curRef.current = i; setCur(i);
@@ -214,7 +230,9 @@ export function Review({ path, go, onDone }) {
         </div>
       </div>
       <${Preview} pages=${preview && preview.pages} qr=${preview && preview.qr} qrs=${(preview && preview.qrs) || []} focus=${focusQr} loading=${!preview} />
-      <div class="panel">
+      <div class="panel" style=${{ width: `${panelW}px` }}>
+        <div class="panel-resize" title=${t("Drag to change the width · double-click: automatic")}
+          onMouseDown=${startPanelDrag} onDblClick=${() => { setPanelW(PANEL_DEFAULT); api.set_panel_width(null); }}></div>
         <small class="muted">${t("Invoice {a} of {n}", { a: cur + 1, n })}</small>
         <h3 class="file-title">${file.name}</h3>
         <div class="panel-scroll">

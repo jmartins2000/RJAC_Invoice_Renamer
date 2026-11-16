@@ -118,6 +118,11 @@ class Api:
                     self._emit("update", self._update_dict())
             threading.Thread(target=check, daemon=True).start()
 
+    def set_panel_width(self, width):
+        """Review screen: width of the values panel on the right (None = default)."""
+        settings.save(review_panel_width=max(300, min(760, int(width))) if width else None)
+        return True
+
     def set_column_width(self, key, width):
         """Client table: a column's width in px (None = back to automatic). Same for every client."""
         widths = dict(settings.load().get("column_widths") or {})
@@ -359,6 +364,7 @@ class Api:
         session = ReviewSession(key, path, on_change=lambda p: self._emit("file", self._file_state(session, p)))
         self._session = session
         return {"name": self._client_name(path), "folder": path, "dest": session.dest,
+                "panel_width": settings.load().get("review_panel_width"),
                 "fields": [{"key": f.key, "label": f.label, "type": f.type} for f in session.fields],
                 "files": [self._file_state(session, session.path(f)) for f in session.files]}
 
@@ -385,8 +391,11 @@ class Api:
         state = s.state(path)
         data = s.values.get(path, {})
         notice = s.notice(path) if state != "reading" else None
-        form = {f.key: fieldmod.display_value(f, data.get(f.key)) for f in s.fields}
         parts = multi.parts(data)
+        shown = data
+        if path in s.clone_part and s.clone_part[path] < len(parts):  # a copy made for one invoice: show that invoice
+            shown = multi.part_values(data, parts[s.clone_part[path]])
+        form = {f.key: fieldmod.display_value(f, shown.get(f.key)) for f in s.fields}
         invoices = None
         if parts:
             total_sum, doc_total, sum_ok = multi.sum_check(data)

@@ -225,6 +225,8 @@ class ReviewSession:
     def confirm(self, name, form):
         """Keep what the user sees in the form (user edits win). form = {key: text}."""
         path = self.path(name)
+        if path in self.clone_part:  # a copy for one invoice: its values come from that invoice's QR code
+            return
         vals = {f.key: fieldmod.parse_value(f, form.get(f.key, "")) for f in self.fields}
         if not any(v not in (None, "") for v in vals.values()):
             return
