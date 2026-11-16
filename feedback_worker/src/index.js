@@ -12,11 +12,23 @@ const MAX_PARTS = 20;
 const ID = /^[0-9]{8}-[0-9]{6}-[a-z0-9]{6,12}$/; // e.g. 20261109-023512-k3j9x2
 const APP_HEADER = "x-rjac-app";
 
+// New feedback → a short notice to the owner's Google Apps Script, which emails it (see notify_email.gs).
+async function notify(env, id, meta) {
+  const body = {
+    secret: env.NOTIFY_SECRET, id, kind: meta.kind || "", version: meta.app_version || "", os: meta.os || "",
+    screen: meta.screen || "", folder: (meta.folder && meta.folder.name) || meta.folder || "",
+    message: String(meta.message || "").slice(0, 1500), mb: Math.round((meta.bytes || 0) / 1e5) / 10,
+  };
+  try {
+    await fetch(env.NOTIFY_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  } catch (e) { /* the feedback is saved either way */ }
+}
+
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
 
@@ -47,6 +59,7 @@ export default {
         }
         meta.received_at = new Date().toISOString();
         await env.FEEDBACK.put(`fb:${id}:meta`, JSON.stringify(meta), { expirationTtl: 60 * 60 * 24 * 180 });
+        if (env.NOTIFY_URL && env.NOTIFY_SECRET) ctx.waitUntil(notify(env, id, meta));  // email the owner; never blocks the app
         return json({ ok: true, id });
       }
       return json({ error: "not found" }, 404);
