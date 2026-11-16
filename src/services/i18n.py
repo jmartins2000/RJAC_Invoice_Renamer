@@ -140,4 +140,6 @@ PT = {
     "Read {n} new files": "Ler {n} ficheiros novos",
     "Improvements and fixes.": "Melhorias e correções.",
     "Sending {mb} MB…": "A enviar {mb} MB…",
+    "This invoice is inside a PDF with several invoices; its values come from its official QR code. Use \"Keep receipt values\" instead.": "Esta fatura está dentro de um PDF com várias faturas; os valores vêm do código QR oficial. Use \"Manter valores do documento\".",
+    "Copy for invoice {i} of {n} in this PDF ({number}).": "Cópia para a fatura {i} de {n} deste PDF ({number}).",
 }

@@ -272,6 +272,51 @@ check(bool(pv2["2026"]["layout"]), "the mapping is remembered for this client")
 again6 = workbook.read(odd, saved=workbook.saved_layouts(c6))
 check(len(again6["sheets"][0]["documents"]) == want["documents"], "next import of the same workbook needs no help")
 
+print("\nPart 6 — PDFs with several invoices (Via Verde, EDP)")
+import json  # noqa: E402
+from src.services import multi  # noqa: E402
+gt_path = os.path.join(ROOT, "samples", "ground_truth.json")
+if os.path.exists(gt_path):
+    gt = json.load(open(gt_path, encoding="utf-8"))
+    for name, exp in gt.items():
+        if not isinstance(exp, dict) or "invoices" not in exp:
+            continue
+        f = os.path.join(ROOT, "samples", name)
+        if not os.path.exists(f):
+            continue
+        qrs = qr_at.read_all(f)
+        got = [(q["invoice_number"], round(q["total_value"], 2), q["supplier_nif"]) for q in qrs]
+        want = [(x["invoice_number"], round(x["total_value"], 2), x["supplier_nif"]) for x in exp["invoices"]]
+        check(got == want, f"{name}: every invoice's QR code read ({len(got)} of {len(want)})")
+else:
+    print("  (skipped reading real PDFs: private test dataset not available)")
+c7 = os.path.join(WORK, "Cliente Via Verde")
+os.makedirs(c7)
+history.add_project(c7)
+stmt = os.path.join(c7, "extrato.pdf")
+open(stmt, "wb").write(b"%PDF-1.4 statement")
+parts = [{"supplier": "Brisa", "supplier_nif": "502790024", "invoice_number": "FT BR2026/9", "date": "2026-07-31", "total_value": 90.70, "qr": True},
+         {"supplier": "Lusoponte", "supplier_nif": "503174688", "invoice_number": "FT LS2026/2", "date": "2026-07-31", "total_value": 6.75, "qr": True},
+         {"supplier": "Via Verde", "supplier_nif": "504656767", "invoice_number": "FT VV2026/7", "date": "2026-07-31", "total_value": 1.86, "qr": True}]
+history.save(history.fingerprint(stmt), {"date": "2026-07-31", "total_value": 99.31, "invoice_number": "015/07/2026",
+             "supplier": "Via Verde", "_invoices": parts}, "confirmed", stmt, project=c7)
+check(multi.sum_check({"total_value": 99.31, "_invoices": parts})[2], "the invoices add up to the statement's total")
+check(len(multi.expand({"total_value": 99.31, "_invoices": parts})) == 3, "one set of values per invoice (one Excel row each)")
+ef7 = write("ef_vv.csv", "Emitente;Nº Fatura / ATCUD;Tipo;Data Emissão;Total\n"
+            "502790024 - Brisa;FT BR2026/9 / JFAA11BB-9;Fatura;31-07-2026;90,70\n"
+            "503174688 - Lusoponte;FT LS2026/2 / JFAA11BB-2;Fatura;31-07-2026;6,75\n"
+            "504656767 - Via Verde;FT VV2026/7 / JFAA11BB-7;Fatura;31-07-2026;1,86\n")
+efatura.import_files(c7, [ef7])
+res7 = efatura.compare(c7)
+check(len(res7["matched"]) == 3 and not res7["missing"] and not res7["not_in_ef"],
+      f"e-Fatura: each invoice inside the PDF matches its own row ({len(res7['matched'])} matched)")
+from src.services.excel_exporter import ExcelExporter  # noqa: E402
+from src.services import fields as fieldmod  # noqa: E402
+xl = os.path.join(WORK, "vv.xlsx")
+ExcelExporter.export(history.query(folder=c7), [f for f in fieldmod.load() if f.enabled], xl, extra_columns=[])
+ws7 = load_workbook(xl).active
+check(ws7.max_row - 1 == 3, f"Excel: one row per invoice ({ws7.max_row - 1} rows)")
+
 shutil.rmtree(WORK, ignore_errors=True)
 print("\nALL OK" if not failures else f"\n{len(failures)} FAILED")
 sys.exit(1 if failures else 0)

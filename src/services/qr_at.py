@@ -117,6 +117,75 @@ def apply(values, field_defs, qr):
     return corrected
 
 
+def _page_images(path, max_pages):
+    """Yields (page index, page, render(width) -> PIL image) for each page (or the image itself)."""
+    from PIL import Image, ImageOps
+    from src.services.file_types import is_image
+    if is_image(path):
+        img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+        yield 0, (lambda w, im=img: im)
+        return
+    import pymupdf
+    doc = pymupdf.open(path)
+    try:
+        for i, page in enumerate(list(doc)[:max_pages]):
+            def render(w, page=page):
+                z = w / max(page.rect.width, 1)
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(z, z))
+                return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            yield i, render
+    finally:
+        doc.close()
+
+
+def read_all(path, max_pages=12):
+    """Every AT QR code in a document (statements like Via Verde or EDP hold several invoices, each
+    with its own code), in page order, top to bottom. Each item is like read()'s result."""
+    try:
+        import zxingcpp
+        from PIL import ImageOps
+    except ImportError:
+        return []
+    gh = zxingcpp.Binarizer.GlobalHistogram
+    strategies = (lambda im: zxingcpp.read_barcodes(im),
+                  lambda im: zxingcpp.read_barcodes(im, binarizer=gh),
+                  lambda im: zxingcpp.read_barcodes(ImageOps.autocontrast(im.convert("L")), binarizer=gh))
+    found = {}
+    try:
+        for page, render in _page_images(path, max_pages):
+            on_page = {}
+
+            def scan(img, which):
+                for r in strategies[which](img):
+                    text = r.text.strip()
+                    if AT_PATTERN.match(text) and text not in on_page and text not in found:
+                        parsed = parse(text)
+                        if parsed:
+                            p = r.position
+                            xs = [p.top_left.x, p.top_right.x, p.bottom_right.x, p.bottom_left.x]
+                            ys = [p.top_left.y, p.top_right.y, p.bottom_right.y, p.bottom_left.y]
+                            parsed["page"] = page
+                            parsed["box"] = (min(xs) / img.width, min(ys) / img.height,
+                                             max(xs) / img.width, max(ys) / img.height)
+                            on_page[text] = parsed
+            img = render(1400)
+            scan(img, 0)
+            if on_page:  # a page with codes may hold more: look again sharper
+                scan(render(2200), 0)
+            else:  # nothing yet: the slower passes for crumpled / faded / tiny codes
+                for w in (1000, 2200):
+                    for which in (0, 1, 2):
+                        scan(img if w == 1400 else render(w), which)
+                        if on_page:
+                            break
+                    if on_page:
+                        break
+            found.update(on_page)
+    except Exception as e:
+        print(f"QR read failed for {path}: {e}")
+    return sorted(found.values(), key=lambda q: (q["page"], q["box"][1], q["box"][0]))
+
+
 # Fields the QR code can fill on its own (the supplier's name comes from earlier invoices of the same NIF)
 QR_FIELDS = {"date", "total_value", "invoice_number", "supplier_nif", "vat_amount", "net_amount"}
 
@@ -135,3 +204,55 @@ def values_without_ai(qr, field_defs, supplier_name):
         else:
             return None
     return values
+
+
+def _norm(number):
+    return re.sub(r"[^A-Z0-9]", "", str(number or "").upper())
+
+
+def merge_invoices(qrs, listed, name_for_nif=None):
+    """The invoices inside one document, from its AT QR codes (certified) and/or the model's list.
+    Returns [] for an ordinary single-invoice document. Each item: supplier, supplier_nif,
+    invoice_number, date, total_value (+ vat_amount, page, box, qr=True when from a QR code)."""
+    listed = [x for x in (listed or []) if isinstance(x, dict)]
+    out = []
+    if len(qrs) >= 2:
+        used = set()
+        for q in qrs:
+            match = None
+            for i, x in enumerate(listed):  # same number, else same NIF and total
+                if i in used:
+                    continue
+                if _norm(x.get("invoice_number")) and _norm(x.get("invoice_number")) == _norm(q.get("invoice_number")):
+                    match = i
+                    break
+            if match is None:
+                for i, x in enumerate(listed):
+                    if i in used:
+                        continue
+                    nif = re.sub(r"\D", "", str(x.get("supplier_nif") or ""))
+                    try:
+                        same_total = abs(float(x.get("total_value")) - float(q.get("total_value"))) < 0.01
+                    except (TypeError, ValueError):
+                        same_total = False
+                    if same_total and (not nif or nif == q.get("supplier_nif")):
+                        match = i
+                        break
+            if match is not None:
+                used.add(match)
+            name = (listed[match].get("supplier") if match is not None else "") or \
+                   (name_for_nif(q.get("supplier_nif")) if name_for_nif else "") or ""
+            out.append({"supplier": name, "supplier_nif": q.get("supplier_nif") or "",
+                        "invoice_number": q.get("invoice_number") or "", "date": q.get("date") or "",
+                        "total_value": q.get("total_value"), "vat_amount": q.get("vat_amount"),
+                        "doc_type": q.get("doc_type") or "", "page": q.get("page"), "box": q.get("box"), "qr": True})
+    elif len(listed) >= 2:
+        for x in listed:
+            try:
+                total = float(x.get("total_value")) if x.get("total_value") not in (None, "") else None
+            except (TypeError, ValueError):
+                total = None
+            out.append({"supplier": x.get("supplier") or "", "supplier_nif": re.sub(r"\D", "", str(x.get("supplier_nif") or "")),
+                        "invoice_number": x.get("invoice_number") or "", "date": x.get("date") or "",
+                        "total_value": total, "qr": False})
+    return out

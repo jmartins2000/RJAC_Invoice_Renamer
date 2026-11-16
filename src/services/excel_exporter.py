@@ -32,7 +32,19 @@ class ExcelExporter:
                 cell.fill = PatternFill(start_color="204E27", end_color="204E27", fill_type="solid")
                 cell.font = Font(bold=True, color="FFFFFF")
                 cell.alignment = Alignment(horizontal="center", vertical="center")
-            for row in rows:
+            from src.services import multi
+            expanded = []
+            for row in rows:  # a PDF with several invoices: one row per invoice (with its own copy's name)
+                v = row.get("values", {})
+                parts = multi.parts(v)
+                copies = v.get("_copies") or []
+                if not parts:
+                    expanded.append(row)
+                    continue
+                for i, part in enumerate(parts):
+                    expanded.append({**row, "values": multi.part_values(v, part),
+                                     "file_name": copies[i] if i < len(copies) else row.get("file_name")})
+            for row in expanded:
                 vals = row.get("values", {})
                 out = []
                 for f in cols:

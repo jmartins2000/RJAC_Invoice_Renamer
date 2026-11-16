@@ -125,6 +125,17 @@ def json_schema(fields):
             props[f.key] = {"type": "string", "description": f"{f.label}, as YYYY-MM-DD, or empty"}
         else:
             props[f.key] = {"type": "string", "description": f"{f.label}, or empty"}
+    # A statement can hold several invoices (Via Verde, EDP…): list them too (empty for a single invoice)
+    props["invoices"] = {
+        "type": "array", "description": "Every invoice in this document when it holds more than one; else empty.",
+        "items": {"type": "object", "properties": {
+            "supplier": {"type": "string", "description": "Company that issued this invoice"},
+            "supplier_nif": {"type": "string", "description": "That company's NIF, digits only, or empty"},
+            "invoice_number": {"type": "string", "description": "This invoice's number, exactly as printed"},
+            "date": {"type": "string", "description": "This invoice's date, YYYY-MM-DD"},
+            "total_value": {"type": "number", "nullable": True, "description": "This invoice's total"},
+        }, "required": ["supplier", "supplier_nif", "invoice_number", "date", "total_value"]},
+    }
     return {"type": "object", "properties": props, "required": list(props)}
 
 
@@ -148,6 +159,11 @@ def prompt(fields):
     for f in fields:
         if f.enabled:
             lines.append(f"- {f.key} ({f.label}, {f.type}): {f.instructions}")
+    lines.append("- invoices: some documents hold SEVERAL invoices (e.g. a Via Verde statement with invoices from "
+                 "different companies, or an EDP bill with a separate invoice for the audiovisual contribution); each "
+                 "has its own number, total and usually its own QR code. Then list every one of them (supplier, "
+                 "supplier_nif, invoice_number, date, total_value), and use the document's own date, total to pay and "
+                 "number for the fields above. For an ordinary single invoice, return an empty list.")
     return "\n".join(lines)
 
 

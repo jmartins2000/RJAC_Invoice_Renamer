@@ -297,7 +297,20 @@ def compare(project, start=None, end=None):
       not_in_ef   [invoice]      — receipt in the folder, not in e-Fatura
       cancelled   [efatura_row]  — cancelled by the supplier (not matched, nothing expected)
     """
-    invoices = history.query(start, end, project)
+    from src.services import multi
+    invoices = []
+    for inv in history.query(None, None, project):  # PDFs with several invoices: each one on its own
+        parts = multi.parts(inv["values"])
+        if not parts:
+            invoices.append(inv)
+            continue
+        copies = inv["values"].get("_copies") or []
+        for i, part in enumerate(parts):
+            invoices.append({**inv, "values": multi.part_values(inv["values"], part), "hash": f"{inv['hash']}:{i}",
+                             "file_name": copies[i] if i < len(copies) else inv["file_name"], "part_of": inv["hash"]})
+    if start or end:  # by each invoice's own date
+        invoices = [i for i in invoices if (not start or str(i["values"].get("date") or "")[:10] >= start)
+                    and (not end or "" < str(i["values"].get("date") or "")[:10] <= end)]
     all_rows = rows(project, start, end)
     ef = [r for r in all_rows if not is_cancelled(r)]
     by_number = {}

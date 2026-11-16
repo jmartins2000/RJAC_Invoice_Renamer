@@ -1,11 +1,16 @@
 // Review: file list · preview (zoom, QR outline) · fields. Values come from history, filename, QR or Gemini.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
-import { api, Calendar, ctx, FeedbackButton, html, Icon, Modal, plural, StatusDot, t, tn, Toggle, TopBar, usePy, Spinner } from "../ui.js";
+import { api, Calendar, ctx, FeedbackButton, html, Icon, Modal, money, plural, StatusDot, t, tn, Toggle, TopBar, usePy, Spinner } from "../ui.js";
 
-export function Preview({ pages, qr, loading, compact = false }) {
+export function Preview({ pages, qr, qrs = [], focus = null, loading, compact = false }) {
   const [zoom, setZoom] = useState(1);
   const box = useRef();
   useEffect(() => setZoom(1), [pages]);
+  useEffect(() => {  // a row of the invoices table was clicked: bring its QR code into view
+    if (focus == null || !box.current) return;
+    const el = box.current.querySelector(`.qr-box[data-n="${focus}"]`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focus]);
   useEffect(() => {
     const el = box.current;
     if (!el || compact) return;
@@ -20,6 +25,10 @@ export function Preview({ pages, qr, loading, compact = false }) {
           ${pages.map((p, i) => html`<div class="page-img">
             <img src=${p.src} draggable="false" />
             ${qr && qr.page === i && html`<div class="qr-box" title=${t("Official AT QR code")} style=${{ left: `${qr.box[0] * 100}%`, top: `${qr.box[1] * 100}%`, width: `${(qr.box[2] - qr.box[0]) * 100}%`, height: `${(qr.box[3] - qr.box[1]) * 100}%` }}></div>`}
+            ${qrs.filter((q) => q.page === i).map((q) => html`<div class=${"qr-box numbered" + (focus === q.n ? " focus" : "")} data-n=${q.n}
+              title=${t("Invoice {n}: official AT QR code", { n: q.n })}
+              style=${{ left: `${q.box[0] * 100}%`, top: `${q.box[1] * 100}%`, width: `${(q.box[2] - q.box[0]) * 100}%`, height: `${(q.box[3] - q.box[1]) * 100}%` }}>
+              <span class="qr-n">${q.n}</span></div>`)}
           </div>`)}
         </div>`}
       ${!compact && pages && pages.length > 0 && html`<div class="zoom">
@@ -33,6 +42,7 @@ export function Preview({ pages, qr, loading, compact = false }) {
 function RenameDialog({ info, onCancel, onGo }) {
   const [dest, setDest] = useState(info.dest);
   const [del, setDel] = useState(info.delete);
+  const [split, setSplit] = useState(info.split);
   const [busy, setBusy] = useState(false);
   const notes = [];
   if (info.done) notes.push(t("{n} already renamed or duplicates (left as they are)", { n: info.done }));
@@ -44,8 +54,16 @@ function RenameDialog({ info, onCancel, onGo }) {
     <div class="dest-box"><span class="ellipsis">${dest}</span><button class="link" onClick=${async () => { const d = await api.review_choose_dest(dest); if (d) setDest(d); }}>${t("Change")}</button></div>
     <div class="toggle-row"><${Toggle} on=${del} onChange=${setDel} />
       <div><b>${t("Delete the originals")}</b><small class="muted">${t("Only after each renamed copy is saved")}</small></div></div>
+    ${info.multi > 0 && html`<div class="multi-choice">
+      <b>${tn(info.multi, "{n} PDF has several invoices", "{n} PDFs have several invoices")}</b>
+      <div class="seg wide mt-s">
+        <button class=${split ? "on" : ""} onClick=${() => setSplit(true)}>${t("One copy per invoice")}</button>
+        <button class=${!split ? "on" : ""} onClick=${() => setSplit(false)}>${t("A single file")}</button>
+      </div>
+      <small class="muted">${split ? t("The same PDF is saved once per invoice, each copy named after its invoice.") : t("The PDF is renamed once, after the document itself.")} ${t("Your choice is remembered.")}</small>
+    </div>`}
     <div class="actions"><button class="btn" disabled=${busy} onClick=${onCancel}>${t("Cancel")}</button>
-      <button class="btn solid" disabled=${busy} onClick=${() => { setBusy(true); onGo(dest, del); }}>${busy ? t("Renaming…") : t("Rename")}</button></div>
+      <button class="btn solid" disabled=${busy} onClick=${() => { setBusy(true); onGo(dest, del, info.multi > 0 ? split : null); }}>${busy ? t("Renaming…") : t("Rename")}</button></div>
   <//>`;
 }
 
@@ -56,9 +74,28 @@ function DateInput({ value, onChange }) {
   return html`<div class="date-input">
     <div class="date-input-row">
       <input class="input" value=${value} placeholder="YYYY.MM.DD" onInput=${(e) => onChange(e.target.value)} />
-      <button class=${"btn icon" + (open ? " on" : "")} type="button" title=${t("Choose on a calendar")} onClick=${() => setOpen(!open)}><${Icon} name="calendar" size=${16} /></button>
+      <button class=${"cal-in" + (open ? " on" : "")} type="button" title=${t("Choose on a calendar")} onClick=${() => setOpen(!open)}><${Icon} name="calendar" size=${15} /></button>
     </div>
     ${open && html`<div class="cal-inline"><${Calendar} value=${iso} onPick=${(d) => { setOpen(false); onChange(d.replace(/-/g, ".")); }} /></div>`}
+  </div>`;
+}
+
+/** A PDF with several invoices (Via Verde, EDP…): each one, from its QR code, and how its copy will be named. */
+function InvoicesInside({ inv, focus, onFocus }) {
+  return html`<div class="inside">
+    <div class="eyebrow">${tn(inv.items.length, "This PDF has {n} invoice", "This PDF has {n} invoices")}</div>
+    <table class="inside-table">
+      <tbody>${inv.items.map((x, i) => html`<tr class=${focus === i + 1 ? "on" : ""} onClick=${() => onFocus(i + 1)} title=${inv.names && inv.names[i] ? t("Copy: {name}", { name: inv.names[i] }) : ""}>
+        <td class="n">${i + 1}</td>
+        <td class="sup"><b>${x.supplier || x.nif || "—"}</b><small class="muted">${x.number}</small></td>
+        <td class="d">${x.date}</td>
+        <td class="num" title=${x.credit ? t("Credit note: subtracts") : ""}>${x.credit ? "−" : ""}${money(x.total)}</td>
+        <td class="q">${x.qr ? html`<span class="qr-ok" title=${t("From its official AT QR code")}>QR</span>` : ""}</td>
+      </tr>`)}</tbody>
+    </table>
+    <small class=${inv.sum_ok ? "green" : "muted"}>${inv.sum_ok ? t("✓ The invoices add up to the document's total ({sum})", { sum: money(inv.sum) })
+      : t("The invoices add up to {sum}; the document's total is {total}", { sum: money(inv.sum), total: inv.total == null ? "—" : money(inv.total) })}</small>
+    ${inv.clone != null && html`<small class="muted block">${t("This file is the copy for invoice {n}.", { n: inv.clone + 1 })}</small>`}
   </div>`;
 }
 
@@ -73,6 +110,7 @@ export function Review({ path, go, onDone }) {
   const [summary, setSummary] = useState(null);
   const [renaming, setRenaming] = useState(null);
   const [exported, setExported] = useState(null);
+  const [focusQr, setFocusQr] = useState(null);
   const curRef = useRef(0);
   const filesRef = useRef([]);
   const dirty = useRef(false);
@@ -96,7 +134,7 @@ export function Review({ path, go, onDone }) {
   const show = (i) => {
     curRef.current = i; setCur(i);
     const name = filesRef.current[i].name;
-    setDetail(null); setPreview(null);
+    setDetail(null); setPreview(null); setFocusQr(null);
     loadDetail(name);
     api.review_preview(name).then((p) => { if (filesRef.current[curRef.current]?.name === name) setPreview(p); });
   };
@@ -136,7 +174,7 @@ export function Review({ path, go, onDone }) {
   };
   const back = async () => { await save(); await api.review_close(); go("folder", path); };
   const openRename = async () => { await save(); setRenaming(await api.review_rename_info()); };
-  const doRename = async (dest, del) => { const r = await api.review_rename(dest, del); setRenaming(null); onDone(r); };
+  const doRename = async (dest, del, split) => { const r = await api.review_rename(dest, del, split); setRenaming(null); onDone(r); };
   const exp = async () => { await save(); const ok = await api.review_export(); if (ok !== null) setExported(ok); };
 
   useEffect(() => {
@@ -171,10 +209,11 @@ export function Review({ path, go, onDone }) {
         <div class="eyebrow pad">${t("Invoices")}</div>
         <div class="file-list">
           ${files.map((f, i) => html`<div class=${"file-row" + (i === cur ? " on" : "") + (f.state === "reading" ? " dim" : "")} onClick=${() => goto(i)}>
-            <${StatusDot} state=${f.state} /><span class="ellipsis">${f.name}</span></div>`)}
+            <${StatusDot} state=${f.state} /><span class="ellipsis">${f.name}</span>
+            ${f.parts > 1 && html`<span class="parts-tag" title=${t("This PDF has {n} invoices", { n: f.parts })}>${tn(f.parts, "{n} invoice", "{n} invoices")}</span>`}</div>`)}
         </div>
       </div>
-      <${Preview} pages=${preview && preview.pages} qr=${preview && preview.qr} loading=${!preview} />
+      <${Preview} pages=${preview && preview.pages} qr=${preview && preview.qr} qrs=${(preview && preview.qrs) || []} focus=${focusQr} loading=${!preview} />
       <div class="panel">
         <small class="muted">${t("Invoice {a} of {n}", { a: cur + 1, n })}</small>
         <h3 class="file-title">${file.name}</h3>
@@ -192,6 +231,7 @@ export function Review({ path, go, onDone }) {
                   onInput=${(e) => edit(f.key, e.target.value)} />`}
               </label>`)}
             </div>
+            ${detail.invoices && html`<${InvoicesInside} inv=${detail.invoices} focus=${focusQr} onFocus=${setFocusQr} />`}
             <div class="result"><div class="eyebrow">${t("Will be saved as")}</div><p class="mono">${result || "…"}</p></div>`}
         </div>
         <div class="nav">

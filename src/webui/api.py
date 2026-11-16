@@ -19,7 +19,7 @@ import threading
 import webview
 
 from src.services import api_key as key_store
-from src.services import efatura, history, i18n, models, periods, qr_at, settings, updater, workbook
+from src.services import efatura, history, i18n, models, multi, periods, qr_at, settings, updater, workbook
 from src.services import fields as fieldmod
 from src.services.excel_exporter import FILE_COLUMNS, ExcelExporter
 from src.services.gemini_service import friendly_error as gemini_friendly
@@ -295,9 +295,13 @@ class Api:
         out = []
         for r in rows:
             cells = {f.key: fieldmod.display_value(f, r["values"].get(f.key)) for f in fields}
+            copies = r["values"].get("_copies") or []
+            parts = [{"cells": {f.key: fieldmod.display_value(f, pv.get(f.key)) for f in fields},
+                      "file": copies[i] if i < len(copies) else ""}
+                     for i, pv in enumerate(multi.expand(r["values"]))] if multi.parts(r["values"]) else []
             out.append({"cells": cells, "file": r["file_name"], "path": os.path.join(r["folder"] or "", r["file_name"] or ""),
                         "status": r["status"], "status_label": i18n.tr(STATUS.get(r["status"], r["status"])),
-                        "sort": {k: r["values"].get(k) for k in cells}})
+                        "sort": {k: r["values"].get(k) for k in cells}, "parts": parts})
         total = sum(r["values"].get("total_value") or 0 for r in rows
                     if isinstance(r["values"].get("total_value"), (int, float)))
         return {"rows": out, "total": round(total, 2)}
@@ -360,7 +364,8 @@ class Api:
 
     def _file_state(self, s, path):
         state = s.state(path)
-        return {"name": os.path.basename(path), "state": state}
+        return {"name": os.path.basename(path), "state": state,
+                "parts": len(multi.parts(s.values.get(path) or {}))}
 
     def review_summary(self):
         s = self._session
@@ -381,7 +386,18 @@ class Api:
         data = s.values.get(path, {})
         notice = s.notice(path) if state != "reading" else None
         form = {f.key: fieldmod.display_value(f, data.get(f.key)) for f in s.fields}
-        return {"name": name, "state": state, "form": form,
+        parts = multi.parts(data)
+        invoices = None
+        if parts:
+            total_sum, doc_total, sum_ok = multi.sum_check(data)
+            invoices = {"items": [{"supplier": p.get("supplier") or "", "nif": p.get("supplier_nif") or "",
+                                   "number": p.get("invoice_number") or "", "date": p.get("date") or "",
+                                   "total": p.get("total_value"), "qr": bool(p.get("qr")), "page": p.get("page"),
+                                   "credit": multi.is_credit(p)}
+                                  for p in parts],
+                        "sum": total_sum, "total": doc_total, "sum_ok": sum_ok,
+                        "names": s.part_names(path, name), "clone": s.clone_part.get(path)}
+        return {"name": name, "state": state, "form": form, "invoices": invoices,
                 "notice": {"kind": notice[0], "text": notice[1], "retry": notice[2]} if notice else None,
                 "result": s.filename_for({f.key: fieldmod.parse_value(f, form[f.key]) for f in s.fields}, name)}
 
@@ -405,9 +421,9 @@ class Api:
             if img.width > width * 2.5:  # keep the bridge light: ~2.5× the shown width is plenty for zoom
                 img = img.resize((int(width * 2.5), int(img.height * width * 2.5 / img.width)))
             pages.append({"src": _jpeg_data_url(img), "w": img.width, "h": img.height})
-        qr = qr_at.read(path)
-        box = {"page": qr["page"], "box": list(qr["box"])} if qr and qr.get("box") else None
-        return {"pages": pages, "qr": box}
+        qrs = qr_at.read_all(path) if not first_page_only else ([q] if (q := qr_at.read(path)) else [])
+        boxes = [{"page": q["page"], "box": list(q["box"]), "n": i + 1} for i, q in enumerate(qrs) if q.get("box")]
+        return {"pages": pages, "qr": boxes[0] if len(boxes) == 1 else None, "qrs": boxes if len(boxes) >= 2 else []}
 
     def review_filename(self, name, form):
         s = self._session
@@ -431,13 +447,17 @@ class Api:
     def review_rename_info(self):
         s = self._session
         todo, done, skipped = s.renamable()
+        multi_files = sum(1 for f in todo if multi.parts(s.values.get(s.path(f)) or {}))
         return {"todo": len(todo), "done": len(done), "skipped": len(skipped), "dest": s.dest,
-                "delete": settings.load().get("delete_original", True)}
+                "delete": settings.load().get("delete_original", True),
+                "multi": multi_files, "split": settings.load().get("split_multi", True)}
 
-    def review_rename(self, dest, delete_original):
+    def review_rename(self, dest, delete_original, split=None):
         s = self._session
         settings.save(delete_original=bool(delete_original))
-        result = s.rename(dest, bool(delete_original))
+        if split is not None:
+            settings.save(split_multi=bool(split))  # remembered for next time
+        result = s.rename(dest, bool(delete_original), settings.load().get("split_multi", True))
         settings.add_usage(result["invoices"], result["cost_usd"])
         self._done = {"rows": result.pop("rows"), "dest": dest, "folder": s.folder}
         self.review_close()
@@ -881,6 +901,9 @@ class Api:
         if not item or not item.get("receipt"):
             return {"error": i18n.tr("This case changed; please reload.")}
         h = item["receipt"]["hash"]
+        if ":" in h:  # one invoice inside a PDF with several: its values come from its QR code
+            return {"error": i18n.tr("This invoice is inside a PDF with several invoices; its values come from its "
+                                     "official QR code. Use \"Keep receipt values\" instead.")}
         known = history.get(h)
         if not known:
             return {"error": i18n.tr("This receipt isn't in the history any more.")}

@@ -23,6 +23,13 @@ def score(expected, got):
     if expected.get("is_invoice") is False:
         empty = not any([got.get("date"), got.get("total_value"), got.get("invoice_number"), got.get("supplier")])
         return {"not_invoice_detected": got.get("is_invoice") is False or empty, "no_invented_values": empty}
+    if expected.get("invoices"):  # a document holding several invoices: each one must be found
+        want = [(norm_id(x["invoice_number"]), round(x["total_value"], 2)) for x in expected["invoices"]]
+        have = [(norm_id(x.get("invoice_number")), round(float(x.get("total_value") or 0), 2))
+                for x in got.get("_invoices") or []]
+        return {"date": got.get("date") == expected["date"],
+                "invoices_inside": have == want,
+                "supplier": any(k in str(got.get("supplier", "")).lower() for k in expected["supplier"])}
     try:
         value_ok = abs(float(got.get("total_value") or 0) - expected["total_value"]) < 0.01
     except (TypeError, ValueError):

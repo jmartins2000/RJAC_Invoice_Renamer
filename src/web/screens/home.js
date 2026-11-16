@@ -124,6 +124,7 @@ export function Done({ result, go }) {
   useEffect(() => { ctx.screen = "Done"; }, []);
   const r = result;
   let detail = t("Saved in {place}.", { place: r.dest_name });
+  if (r.files_made && r.files_made > r.renamed) detail += " " + t("{n} files in all: PDFs with several invoices were saved once per invoice.", { n: r.files_made });
   if (r.skipped) detail += " " + tn(r.skipped, "{n} file was skipped and left untouched.", "{n} files were skipped and left untouched.");
   if (r.failed.length) detail += " " + t("{n} could not be copied: {files}.", { n: r.failed.length, files: r.failed.slice(0, 5).join(", ") + (r.failed.length > 5 ? "…" : "") });
   const exp = async () => { const ok = await api.done_export(); if (ok !== null) setExported(ok); };

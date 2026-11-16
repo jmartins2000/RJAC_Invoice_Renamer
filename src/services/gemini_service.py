@@ -61,9 +61,18 @@ class GeminiService:
             return {"error": msg}
 
     def _apply_qr(self, file_path, data):
-        """Use the official AT QR code (when present) as the source of truth for the values it holds."""
-        from src.services import qr_at
-        qr = qr_at.read(file_path)
+        """Use the official AT QR code (when present) as the source of truth for the values it holds.
+        A document with several invoices (several QR codes) keeps its own values and lists the invoices."""
+        from src.services import history, qr_at
+        qrs = qr_at.read_all(file_path)
+        parts = qr_at.merge_invoices(qrs, data.pop("invoices", None), history.supplier_name_for_nif)
+        if parts:
+            data["_invoices"] = parts
+            data["is_invoice"] = True
+            if len(qrs) >= 2:
+                data["qr_checked"] = True
+            return
+        qr = qrs[0] if qrs else None
         if not qr:
             return
         corrected = qr_at.apply(data, self.fields, qr)

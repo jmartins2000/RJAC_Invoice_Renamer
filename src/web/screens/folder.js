@@ -103,11 +103,16 @@ export function InvoiceTable({ columns, rows, pending = [], folder = "", widths 
             <td title=${name}>${name}</td>
             <td class="status-new">${t("Not read yet")}</td>
           </tr>`)}
-          ${shown.map((r) => html`<tr onDblClick=${async () => { if (!(await api.open(r.path))) toast(t("This file is no longer there."), "warn"); }}>
+          ${shown.map((r) => html`<tr class=${r.parts && r.parts.length ? "has-parts" : ""} onDblClick=${async () => { if (!(await api.open(r.path))) toast(t("This file is no longer there."), "warn"); }}>
             ${columns.map((c) => html`<td class=${numeric(c) ? "num" : ""} title=${r.cells[c.key]}>${r.cells[c.key]}</td>`)}
-            <td title=${r.file}>${r.file}</td>
+            <td title=${r.file}>${r.file}${r.parts && r.parts.length ? html` <span class="parts-tag">${tn(r.parts.length, "{n} invoice", "{n} invoices")}</span>` : ""}</td>
             <td class=${"status-" + r.status}>${r.status_label}</td>
-          </tr>`)}
+          </tr>
+          ${(r.parts || []).map((p, i) => html`<tr class="part-row">
+            ${columns.map((c, ci) => html`<td class=${numeric(c) ? "num" : ""} title=${p.cells[c.key]}>${ci === 0 ? html`<span class="part-arrow">↳</span>` : ""}${p.cells[c.key]}</td>`)}
+            <td class="muted" title=${p.file}>${p.file || t("invoice {n} of {m}", { n: i + 1, m: r.parts.length })}</td>
+            <td></td>
+          </tr>`)}`)}
         </tbody>
       </table>
     </div>`;

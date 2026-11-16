@@ -13,7 +13,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from src.services import fields as fieldmod
-from src.services import history, qr_at, settings
+from src.services import history, multi, qr_at, settings
 from src.services.file_manager import FileManager
 from src.services.file_types import list_invoices
 from src.services.gemini_service import GeminiService
@@ -39,6 +39,7 @@ class ReviewSession:
         self.hashes, self.values, self.status, self.source = {}, {}, {}, {}
         self.warnings, self.errors, self.qr = {}, {}, {}
         self.duplicate_of, self.copy_elsewhere = {}, {}
+        self.clone_part = {}  # path -> index: a copy made for one invoice of a multi-invoice PDF
         self.in_flight, self.edited = set(), set()
         self.gemini_reads = self.renamed_count = 0
         history.add_project(self.folder)
@@ -82,15 +83,23 @@ class ReviewSession:
         needed = {f.key for f in self.fields}
         if not force_gemini:
             known = history.get(h)
+            copies = (known or {}).get("values", {}).get("_copies") or []
+            if known and os.path.basename(path) in copies:  # one of the copies made per invoice
+                self.clone_part[path] = copies.index(os.path.basename(path))
+                return self._result(path, h, dict(known["values"]), "history", "renamed")
             if known and needed <= set(known["values"]):
                 copy = os.path.join(known["folder"] or "", known["file_name"] or "")
                 elsewhere = (known["status"] == "renamed" and os.path.exists(copy)
                              and os.path.abspath(copy) != os.path.abspath(path))
                 values, status = dict(known["values"]), known["status"]
                 if not elsewhere:  # free, local re-check against the official QR (fixes older readings)
-                    qr = qr_at.read(path)
-                    if qr:
-                        corrected = qr_at.apply(values, self.fields, qr)
+                    qrs = qr_at.read_all(path)
+                    if len(qrs) >= 2:  # a statement with several invoices: list them (no AI needed)
+                        if not values.get("_invoices"):
+                            values["_invoices"] = qr_at.merge_invoices(qrs, None, history.supplier_name_for_nif)
+                        values["qr_checked"] = True
+                    elif qrs:
+                        corrected = qr_at.apply(values, self.fields, qrs[0])
                         values["qr_checked"] = True
                         if corrected:
                             values["qr_corrected"] = corrected
@@ -99,7 +108,8 @@ class ReviewSession:
             parsed = fieldmod.parse_filename(os.path.basename(path), self.fields, self.filename_keys, self.separator)
             if parsed and needed <= set(parsed):
                 return self._result(path, h, parsed, "filename", "renamed")
-            qr = qr_at.read(path)  # official QR + a supplier seen before: no AI needed
+            qrs = qr_at.read_all(path)  # one official QR + a supplier seen before: no AI needed
+            qr = qrs[0] if len(qrs) == 1 else None  # several invoices: the document's own values need the AI
             if qr:
                 values = qr_at.values_without_ai(qr, self.fields, history.supplier_name_for_nif(qr.get("supplier_nif")))
                 if values:
@@ -114,6 +124,8 @@ class ReviewSession:
             if h:
                 self.hashes[path] = h
                 twin = next((p for p, x in self.hashes.items() if x == h and p != path), None)
+                if twin and (path in self.clone_part or twin in self.clone_part):
+                    twin = None  # copies made on purpose, one per invoice: not duplicates
                 if twin:  # identical file already in this folder: the later name is the duplicate
                     order = lambda p: self.files.index(os.path.basename(p)) if os.path.basename(p) in self.files else 0  # noqa: E731
                     first, later = sorted([twin, path], key=order)
@@ -171,6 +183,12 @@ class ReviewSession:
         if path in self.duplicate_of:
             return ("warning", tr("Duplicate: this is the same file as {f}. It won't be renamed or counted twice.",
                                   f=self.duplicate_of[path]), False)
+        if path in self.clone_part:
+            p = multi.parts(self.values.get(path) or {})
+            i = self.clone_part[path]
+            if i < len(p):
+                return ("info", tr("Copy for invoice {i} of {n} in this PDF ({number}).", i=i + 1, n=len(p),
+                                   number=p[i].get("invoice_number") or ""), False)
         if path in self.copy_elsewhere:
             where = self.copy_elsewhere[path]
             return ("info", tr("Already renamed: the renamed copy is in \"{folder}\" as {name}. This original won't be "
@@ -198,6 +216,11 @@ class ReviewSession:
 
     def filename_for(self, values, original):
         return fieldmod.build_filename(values, original, self.fields, self.filename_keys, self.separator)
+
+    def part_names(self, path, original):
+        """For a PDF with several invoices: the name of each invoice's copy."""
+        v = self.values.get(path) or {}
+        return [self.filename_for(multi.part_values(v, part), original) for part in multi.parts(v)]
 
     def confirm(self, name, form):
         """Keep what the user sees in the form (user edits win). form = {key: text}."""
@@ -235,7 +258,7 @@ class ReviewSession:
         for f in self.files:
             path = self.path(f)
             v = self.usable(path)
-            if path in self.duplicate_of or path in self.copy_elsewhere:
+            if path in self.duplicate_of or path in self.copy_elsewhere or path in self.clone_part:
                 done.append(f)
             elif not v:
                 skipped.append(f)
@@ -257,19 +280,53 @@ class ReviewSession:
             v = self.usable(path)
             if v and path not in self.duplicate_of:
                 where = self.copy_elsewhere.get(path)
-                out.append({"values": v, "file_name": os.path.basename(where) if where else f,
-                            "folder": os.path.dirname(where) if where else self.folder,
-                            "original_name": self.original_name(path)})
+                if path in self.clone_part:  # one copy per invoice: this file is that invoice only
+                    p = multi.parts(v)
+                    i = self.clone_part[path]
+                    if i < len(p):
+                        out.append({"values": multi.part_values(v, p[i]), "file_name": f, "folder": self.folder,
+                                    "original_name": self.original_name(path)})
+                    continue
+                for one in multi.expand(v):  # one Excel row per invoice
+                    out.append({"values": one, "file_name": os.path.basename(where) if where else f,
+                                "folder": os.path.dirname(where) if where else self.folder,
+                                "original_name": self.original_name(path)})
         return out
 
-    def rename(self, dest, delete_original):
+    def rename(self, dest, delete_original, split=True):
+        """split: a PDF with several invoices gets one copy per invoice, each named after its invoice."""
         todo, done, skipped = self.renamable()
-        renamed, failed, rows = 0, [], []
+        renamed, failed, rows, extra_copies = 0, [], [], 0
         for f in self.files:
             path = self.path(f)
             v = self.usable(path)
             original = self.original_name(path)
             new_name = f
+            parts = multi.parts(self.values.get(path) or {})
+            if f in todo and split and parts:
+                names = [n for n in self.part_names(path, f) if n]
+                made = [FileManager.rename_invoice(path, dest, n, False) for n in names]
+                if names and all(made):
+                    renamed += 1
+                    extra_copies += len(made) - 1
+                    copies = [os.path.basename(m) for m in made]
+                    values = {**self.values[path], "_copies": copies}
+                    self.values[path] = values
+                    h = self.hashes.get(path)
+                    if h:
+                        history.save(h, values, "confirmed", path, project=self.folder, run_id=self.run_id)
+                        history.moved(h, made[0])
+                    if delete_original and os.path.abspath(path) not in {os.path.abspath(m) for m in made}:
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
+                    for part, copy in zip(parts, copies):
+                        rows.append({"values": multi.part_values(values, part), "file_name": copy,
+                                     "original_name": original, "folder": dest})
+                else:
+                    failed.append(f)
+                continue
             if f in todo:
                 name = self.filename_for(self.values[path], f)
                 new_path = FileManager.rename_invoice(path, dest, name, delete_original) if name else None
@@ -283,10 +340,11 @@ class ReviewSession:
                 else:
                     failed.append(f)
             if v and path not in self.duplicate_of:
-                rows.append({"values": v, "file_name": new_name, "original_name": original,
-                             "folder": dest if f in todo and f not in failed else self.folder})
+                for one in multi.expand(v):  # one Excel row per invoice
+                    rows.append({"values": one, "file_name": new_name, "original_name": original,
+                                 "folder": dest if f in todo and f not in failed else self.folder})
         self.renamed_count += renamed
-        return {"renamed": renamed, "failed": failed, "skipped": len(skipped) + len(done),
+        return {"renamed": renamed, "files_made": renamed + extra_copies, "failed": failed, "skipped": len(skipped) + len(done),
                 "corrected": len(self.edited), "cost_usd": self.gemini.get_total_cost_usd(),
                 "invoices": self.gemini_reads, "rows": rows}
 
