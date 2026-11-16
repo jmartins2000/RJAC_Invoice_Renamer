@@ -187,7 +187,7 @@ section .menu-btn { height: 42px; background: var(--snow); border: 1px solid var
 
 /* Review */
 .review { flex: 1; display: flex; min-height: 0; }
-.files { width: 248px; flex-shrink: 0; border-right: 1px solid var(--frost); display: flex; flex-direction: column; }
+.files { width: 248px; flex-shrink: 0; border-right: 1px solid var(--frost); display: flex; flex-direction: column; position: relative; }
 .files .eyebrow.pad { padding: 20px 20px 4px; margin: 0; }
 .file-list { flex: 1; overflow: auto; padding: 4px 8px 12px 10px; }
 .file-row { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
@@ -460,3 +460,20 @@ tr.row-new td.status-new { font-weight: 600; }
 .inside-item .line2 { display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--lichen); margin-top: 2px; min-width: 0; }
 .inside-item .line2 .ellipsis { flex: 1; min-width: 0; }
 .inside-item .line2 .d { white-space: nowrap; }
+.files-resize { position: absolute; right: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
+.files-resize:hover, body.resizing .files-resize:hover { background: linear-gradient(to right, transparent 3px, var(--evergreen) 3px, var(--evergreen) 5px, transparent 5px); }
+.inv-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 14px; }
+.inv-tabs button { min-width: 34px; height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--field-border); font-size: 13px; font-weight: 600; }
+.inv-tabs button:hover { background: var(--snowfield); }
+.inv-tabs button.on { background: var(--evergreen); border-color: var(--evergreen); color: #fff; }
+.iv-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.iv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.iv-field { min-width: 0; }
+.iv-field > span { display: block; font-size: 12px; color: var(--lichen); margin-bottom: 4px; }
+.iv-value { min-height: 38px; padding: 9px 12px; border-radius: 8px; background: var(--snowfield); font-size: 14px; word-break: break-word; }
+.iv-field:nth-child(5) { grid-column: 1 / -1; }
+.in-text { display: inline-block; font-size: 11px; font-weight: 600; margin-left: 4px; white-space: nowrap; }
+.in-text.ok { color: var(--evergreen); }
+.in-text.no { color: var(--amber); }
+.doc-checks { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--lichen); margin: -6px 0 10px; }
+.doc-checks:empty { display: none; }

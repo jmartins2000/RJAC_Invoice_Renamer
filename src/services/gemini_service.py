@@ -68,7 +68,9 @@ class GeminiService:
         data["_qr_v"], data["_qr_ok"] = qr_at.READER_VERSION, bool(qrs)  # remembered: no need to scan again
         parts = qr_at.merge_invoices(qrs, data.pop("invoices", None), history.supplier_name_for_nif)
         if parts:
+            from src.services import multi
             data["_invoices"] = parts
+            data.update(multi.document_values(data, file_path))  # date, total, number by rule, not by guess
             data["is_invoice"] = True
             if len(qrs) >= 2:
                 data["qr_checked"] = True

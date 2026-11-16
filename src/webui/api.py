@@ -118,9 +118,13 @@ class Api:
                     self._emit("update", self._update_dict())
             threading.Thread(target=check, daemon=True).start()
 
-    def set_panel_width(self, width):
-        """Review screen: width of the values panel on the right (None = default)."""
-        settings.save(review_panel_width=max(300, min(760, int(width))) if width else None)
+    def set_panel_width(self, width, which="panel"):
+        """Review screen: width of the values panel on the right, or of the file list on the left
+        (which="files"). None = default."""
+        if which == "files":
+            settings.save(review_files_width=max(180, min(520, int(width))) if width else None)
+        else:
+            settings.save(review_panel_width=max(300, min(760, int(width))) if width else None)
         return True
 
     def set_column_width(self, key, width):
@@ -365,6 +369,7 @@ class Api:
         self._session = session
         return {"name": self._client_name(path), "folder": path, "dest": session.dest,
                 "panel_width": settings.load().get("review_panel_width"),
+                "files_width": settings.load().get("review_files_width"),
                 "fields": [{"key": f.key, "label": f.label, "type": f.type} for f in session.fields],
                 "files": [self._file_state(session, session.path(f)) for f in session.files]}
 
@@ -399,13 +404,21 @@ class Api:
         invoices = None
         if parts:
             total_sum, doc_total, sum_ok = multi.sum_check(data)
+            text = multi.pdf_text(path)
+            split = settings.load().get("split_multi", True)
             invoices = {"items": [{"supplier": p.get("supplier") or "", "nif": p.get("supplier_nif") or "",
                                    "number": p.get("invoice_number") or "", "date": p.get("date") or "",
-                                   "total": p.get("total_value"), "qr": bool(p.get("qr")), "page": p.get("page"),
-                                   "credit": multi.is_credit(p)}
+                                   "total": p.get("total_value"), "vat": p.get("vat_amount"),
+                                   "doc_type": p.get("doc_type") or "", "qr": bool(p.get("qr")),
+                                   "page": p.get("page"), "credit": multi.is_credit(p),
+                                   "name_ok": multi.name_in_text(p.get("supplier"), text) if p.get("supplier") else None,
+                                   "number_ok": multi.number_in_text(p.get("invoice_number"), text)}
                                   for p in parts],
-                        "sum": total_sum, "total": doc_total, "sum_ok": sum_ok,
-                        "names": s.part_names(path, name), "clone": s.clone_part.get(path)}
+                        "sum": total_sum, "total": doc_total, "sum_ok": sum_ok, "split": split,
+                        "names": s.part_names(path, name), "clone": s.clone_part.get(path),
+                        "doc_number_ok": multi.number_in_text(data.get("invoice_number"), text),
+                        "doc_supplier_ok": multi.name_in_text(data.get("supplier"), text) if data.get("supplier") else None,
+                        "has_text": bool(text)}
         return {"name": name, "state": state, "form": form, "invoices": invoices,
                 "notice": {"kind": notice[0], "text": notice[1], "retry": notice[2]} if notice else None,
                 "result": s.filename_for({f.key: fieldmod.parse_value(f, form[f.key]) for f in s.fields}, name)}

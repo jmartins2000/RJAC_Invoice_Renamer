@@ -102,6 +102,40 @@ function InvoicesInside({ inv, focus, onFocus }) {
 }
 
 const PANEL_DEFAULT = 340;
+const FILES_DEFAULT = 248;
+
+/** "✓ no documento" / "?" next to a value: whether it is really printed in the PDF's text. */
+const InText = ({ ok }) => ok == null ? null : ok
+  ? html`<span class="in-text ok" title=${t("Found in the PDF's text")}>✓ ${t("in the document")}</span>`
+  : html`<span class="in-text no" title=${t("Not found in the PDF's text: check it on the preview")}>? ${t("not found in the text")}</span>`;
+
+/** Documento | 1 | 2 | 3 | 4 — which values the fields show. */
+function InvoiceTabs({ n, tab, onTab }) {
+  return html`<div class="inv-tabs">
+    <button class=${tab == null ? "on" : ""} onClick=${() => onTab(null)}>${t("Document")}</button>
+    ${Array.from({ length: n }, (_, i) => html`<button class=${tab === i ? "on" : ""} title=${t("Invoice {n}", { n: i + 1 })} onClick=${() => onTab(i)}>${i + 1}</button>`)}
+  </div>`;
+}
+
+/** One invoice inside the PDF, every value read for it (read-only: they come from its official QR code). */
+function InvoiceValues({ x, i, n }) {
+  const row = (label, value, extra) => html`<div class="iv-field"><span>${label}</span><div class="iv-value">${value || "—"} ${extra || ""}</div></div>`;
+  const amount = (v) => (v == null || v === "") ? "" : `${x.credit ? "−" : ""}${money(v)} €`;
+  return html`<div class="iv">
+    <div class="iv-head"><b>${t("Invoice {a} of {n}", { a: i + 1, n })}</b>
+      ${x.qr ? html`<span class="qr-ok">QR</span> <small class="muted">${t("values from its official AT QR code")}</small>`
+        : html`<small class="muted">${t("values read by Gemini (no QR code)")}</small>`}</div>
+    <div class="iv-grid">
+      ${row(t("Date"), niceDate(x.date, true))}
+      ${row(t("Total"), amount(x.total), x.credit ? html`<small class="muted">${t("credit note")}</small>` : "")}
+      ${row(t("Invoice no."), x.number, html`<${InText} ok=${x.number_ok} />`)}
+      ${row(t("Type"), x.doc_type)}
+      ${row(t("Supplier"), x.supplier, html`<${InText} ok=${x.name_ok} />`)}
+      ${row("NIF", x.nif)}
+      ${row(t("VAT"), amount(x.vat))}
+    </div>
+  </div>`;
+}
 
 export function Review({ path, go, onDone }) {
   const [session, setSession] = useState(null);
@@ -115,6 +149,18 @@ export function Review({ path, go, onDone }) {
   const [renaming, setRenaming] = useState(null);
   const [exported, setExported] = useState(null);
   const [focusQr, setFocusQr] = useState(null);
+  const tab = focusQr == null ? null : focusQr - 1;  // which invoice the fields show (null = the document)
+  const setTab = (i) => setFocusQr(i == null ? null : i + 1);
+  const [filesW, setFilesW] = useState(FILES_DEFAULT);
+  const startFilesDrag = (e) => {
+    e.preventDefault();
+    const x0 = e.clientX, w0 = filesW;
+    let w = w0;
+    const move = (ev) => { w = Math.max(180, Math.min(520, w0 + (ev.clientX - x0))); setFilesW(w); };
+    const up = () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); document.body.classList.remove("resizing"); if (w !== w0) api.set_panel_width(w, "files"); };
+    document.body.classList.add("resizing");
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+  };
   const [panelW, setPanelW] = useState(PANEL_DEFAULT);
   const startPanelDrag = (e) => {
     e.preventDefault();
@@ -135,6 +181,7 @@ export function Review({ path, go, onDone }) {
       if (s.error === "no_key") { go("welcome", { then: ["folder", path] }); return; }
       setSession(s); setFiles(s.files); filesRef.current = s.files;
       if (s.panel_width) setPanelW(s.panel_width);
+      if (s.files_width) setFilesW(s.files_width);
       if (s.files.length) show(0);
       api.review_summary().then(setSummary);
     });
@@ -221,7 +268,9 @@ export function Review({ path, go, onDone }) {
     <//>
     ${n === 0 ? html`<div class="center-page"><div class="center-col"><h1>${t("No invoices here")}</h1><p class="lead">${t("This folder has no PDFs or photos of invoices.")}</p></div></div>` : html`
     <div class="review">
-      <div class="files">
+      <div class="files" style=${{ width: `${filesW}px` }}>
+        <div class="files-resize" title=${t("Drag to change the width · double-click: automatic")}
+          onMouseDown=${startFilesDrag} onDblClick=${() => { setFilesW(FILES_DEFAULT); api.set_panel_width(null, "files"); }}></div>
         <div class="eyebrow pad">${t("Invoices")}</div>
         <div class="file-list">
           ${files.map((f, i) => html`<div class=${"file-row" + (i === cur ? " on" : "") + (f.state === "reading" ? " dim" : "")} onClick=${() => goto(i)}>
@@ -241,16 +290,29 @@ export function Review({ path, go, onDone }) {
               <p>${detail.notice.text}</p>
               ${detail.notice.retry && html`<button class="btn small" onClick=${retry}>${t("Read again with Gemini")}</button>`}
             </div>`}
+            ${detail.invoices && html`<${InvoiceTabs} n=${detail.invoices.items.length} tab=${tab} onTab=${setTab} />`}
+            ${detail.invoices && tab != null && detail.invoices.items[tab] ? html`<${InvoiceValues} x=${detail.invoices.items[tab]} i=${tab} n=${detail.invoices.items.length} />` : html`
             <div class="form">
               ${session.fields.map((f) => html`<label class=${"fld" + (f.type === "text" ? " full" : "")}>
-                <span>${t(f.label)}</span>
+                <span>${t(f.label)}${detail.invoices && form[f.key] && (f.key === "invoice_number" || f.key === "supplier")
+                  ? html` <${InText} ok=${f.key === "invoice_number" ? detail.invoices.doc_number_ok : detail.invoices.doc_supplier_ok} />` : ""}</span>
                 ${f.type === "date" ? html`<${DateInput} value=${form[f.key] || ""} onChange=${(v) => edit(f.key, v)} />` : html`
                 <input class="input" value=${form[f.key] || ""} placeholder=${f.type === "number" ? "0.00" : ""}
                   onInput=${(e) => edit(f.key, e.target.value)} />`}
               </label>`)}
             </div>
+            `}
             ${detail.invoices && html`<${InvoicesInside} inv=${detail.invoices} focus=${focusQr} onFocus=${setFocusQr} />`}
-            <div class="result"><div class="eyebrow">${t("Will be saved as")}</div><p class="mono">${result || "…"}</p></div>`}
+            <div class="result"><div class="eyebrow">${t("Will be saved as")}</div>
+              ${!detail.invoices ? html`<p class="mono">${result || "…"}</p>`
+                : detail.invoices.clone != null ? html`<p class="mono">${file.name}</p><small class="muted">${t("This file is the copy for invoice {n}.", { n: detail.invoices.clone + 1 })}</small>`
+                : detail.invoices.split ? (tab != null
+                    ? html`<p class="mono">${detail.invoices.names[tab] || "…"}</p><small class="muted">${t("The copy for invoice {n} (one copy per invoice).", { n: tab + 1 })}</small>`
+                    : html`<p>${tn(detail.invoices.items.length, "{n} file, one per invoice", "{n} files, one per invoice")}</p><small class="muted">${t("Choose an invoice above to see its file name. You can change this when renaming.")}</small>`)
+                : (tab != null
+                    ? html`<p class="mono">${result || "…"}</p><small class="muted">${t("“A single file” is chosen: the PDF keeps one name, the document's.")}</small>`
+                    : html`<p class="mono">${result || "…"}</p>`)}
+            </div>`}
         </div>
         <div class="nav">
           <button class="btn icon big" disabled=${cur === 0} onClick=${prev}><${Icon} name="left" /></button>
