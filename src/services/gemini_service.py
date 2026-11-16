@@ -65,6 +65,7 @@ class GeminiService:
         A document with several invoices (several QR codes) keeps its own values and lists the invoices."""
         from src.services import history, qr_at
         qrs = qr_at.read_all(file_path)
+        data["_qr_v"], data["_qr_ok"] = qr_at.READER_VERSION, bool(qrs)  # remembered: no need to scan again
         parts = qr_at.merge_invoices(qrs, data.pop("invoices", None), history.supplier_name_for_nif)
         if parts:
             data["_invoices"] = parts

@@ -92,8 +92,12 @@ class ReviewSession:
                 elsewhere = (known["status"] == "renamed" and os.path.exists(copy)
                              and os.path.abspath(copy) != os.path.abspath(path))
                 values, status = dict(known["values"]), known["status"]
-                if not elsewhere:  # free, local re-check against the official QR (fixes older readings)
+                if not elsewhere and values.get("_qr_v") == qr_at.READER_VERSION:
+                    if values.get("_qr_ok"):  # already checked with this reader: no need to scan again
+                        values["qr_checked"] = True
+                elif not elsewhere:  # free, local re-check against the official QR (fixes older readings)
                     qrs = qr_at.read_all(path)
+                    values["_qr_v"], values["_qr_ok"] = qr_at.READER_VERSION, bool(qrs)
                     if len(qrs) >= 2:  # a statement with several invoices: list them (no AI needed)
                         if not values.get("_invoices"):
                             values["_invoices"] = qr_at.merge_invoices(qrs, None, history.supplier_name_for_nif)
@@ -114,6 +118,7 @@ class ReviewSession:
                 values = qr_at.values_without_ai(qr, self.fields, history.supplier_name_for_nif(qr.get("supplier_nif")))
                 if values:
                     values["qr_checked"] = True
+                    values["_qr_v"], values["_qr_ok"] = qr_at.READER_VERSION, True
                     return self._result(path, h, values, "qr", None)
         data = self.gemini.extract_invoice_data(path)
         self._result(path, h, data, "gemini", None)

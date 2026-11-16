@@ -7,6 +7,9 @@ unrelated QR codes on a document (websites, payments) are ignored.
 import re
 
 AT_PATTERN = re.compile(r"^A:\d{9}\*B:")
+# Bumped when the reader finds more than before (e.g. 2 = every code on every page): files checked
+# with an older reader are scanned again once; files already checked with this one aren't.
+READER_VERSION = 2
 
 
 def _images(path, widths=(1000, 1400, 2200)):
