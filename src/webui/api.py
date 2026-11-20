@@ -110,6 +110,7 @@ class Api:
     def start_background(self):
         """Called once by the page: warms the model list and checks for updates (packaged app only)."""
         models.warm()
+        threading.Thread(target=updater.eject_old_installers, daemon=True).start()  # Mac: leftover update disks
         if getattr(sys, "frozen", False) or os.environ.get("RJAC_CHECK_UPDATES"):
             def check():
                 info = updater.check_for_update()

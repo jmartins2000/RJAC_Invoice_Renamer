@@ -113,3 +113,30 @@ def launch_installer(path):
                          close_fds=True)
     elif sys.platform == "darwin":
         subprocess.Popen(["open", path])
+
+
+def eject_old_installers():
+    """macOS: an update opens the downloaded .dmg so the new app can be dragged to Applications, and
+    nothing ejected it afterwards: every update left an "RJAC Invoice Renamer" disk in Finder. At startup,
+    eject the ones the updater downloaded (its own temp folders), never the disk the app is running from."""
+    if sys.platform != "darwin":
+        return 0
+    import plistlib
+    try:
+        out = subprocess.run(["hdiutil", "info", "-plist"], capture_output=True, timeout=10).stdout
+        images = plistlib.loads(out).get("images", [])
+    except Exception:
+        return 0
+    running_from = os.path.realpath(sys.executable)
+    ejected = 0
+    for img in images:
+        path = img.get("image-path", "")
+        if "rjac-update-" not in path or not path.endswith(".dmg"):
+            continue
+        for ent in img.get("system-entities", []):
+            mount = ent.get("mount-point")
+            if not mount or running_from.startswith(os.path.realpath(mount) + os.sep):
+                continue
+            if subprocess.run(["hdiutil", "detach", mount, "-quiet"], timeout=20).returncode == 0:
+                ejected += 1
+    return ejected
